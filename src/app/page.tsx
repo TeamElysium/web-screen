@@ -1,65 +1,112 @@
-import Image from "next/image";
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+
+interface ScreenSession {
+  id: string
+  name: string
+  status: 'attached' | 'detached'
+}
 
 export default function Home() {
+  const [sessions, setSessions] = useState<ScreenSession[]>([])
+  const [newName, setNewName] = useState('')
+  const [error, setError] = useState('')
+  const router = useRouter()
+
+  const fetchSessions = useCallback(async () => {
+    const res = await fetch('/api/sessions')
+    if (res.ok) {
+      setSessions(await res.json())
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchSessions()
+  }, [fetchSessions])
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!newName.trim()) return
+
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() }),
+    })
+
+    if (res.ok) {
+      setNewName('')
+      fetchSessions()
+    } else {
+      const data = await res.json()
+      setError(data.error || 'Failed to create session')
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="mx-auto max-w-2xl p-8">
+      <h1 className="mb-8 text-2xl font-bold">web-screen</h1>
+
+      <form onSubmit={handleCreate} className="mb-8 flex gap-2">
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="Session name"
+          className="flex-1 rounded border px-4 py-2"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        <button
+          type="submit"
+          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+        >
+          New Session
+        </button>
+      </form>
+
+      {error && <p className="mb-4 text-red-500">{error}</p>}
+
+      {sessions.length === 0 ? (
+        <p className="text-gray-500">No screen sessions found.</p>
+      ) : (
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b">
+              <th className="py-2 text-left">Name</th>
+              <th className="py-2 text-left">Status</th>
+              <th className="py-2 text-left">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sessions.map((s) => (
+              <tr key={s.id} className="border-b">
+                <td className="py-2">{s.name}</td>
+                <td className="py-2">
+                  <span
+                    className={
+                      s.status === 'attached'
+                        ? 'text-green-600'
+                        : 'text-gray-500'
+                    }
+                  >
+                    {s.status}
+                  </span>
+                </td>
+                <td className="py-2">
+                  <button
+                    onClick={() => router.push(`/terminal/${s.name}`)}
+                    className="rounded bg-gray-800 px-3 py-1 text-sm text-white hover:bg-gray-700"
+                  >
+                    Connect
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
-  );
+  )
 }
