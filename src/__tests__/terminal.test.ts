@@ -49,13 +49,25 @@ describe('Terminal component logic', () => {
     vi.clearAllMocks()
   })
 
-  it('connects to socket with session name on attach', async () => {
+  it('does not emit terminal:attach immediately — waits for connect event', async () => {
     const { io } = await import('socket.io-client')
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     const cleanup = createTerminalConnection('my-session', document.createElement('div'))
 
     expect(io).toHaveBeenCalled()
+
+    // terminal:attach must NOT be called directly — it should be inside a 'connect' handler
+    expect(mockEmit).not.toHaveBeenCalledWith('terminal:attach', { session: 'my-session' })
+
+    // Verify a 'connect' handler was registered
+    const connectHandler = mockOn.mock.calls.find(
+      (call: any[]) => call[0] === 'connect'
+    )
+    expect(connectHandler).toBeDefined()
+
+    // Simulate the connect event firing — now terminal:attach should be emitted
+    connectHandler![1]()
     expect(mockEmit).toHaveBeenCalledWith('terminal:attach', { session: 'my-session' })
 
     cleanup()
@@ -68,7 +80,7 @@ describe('Terminal component logic', () => {
 
     // Find the 'terminal:output' handler registered via socket.on
     const outputHandler = mockOn.mock.calls.find(
-      (call: [string, (...args: unknown[]) => void]) => call[0] === 'terminal:output'
+      (call: any[]) => call[0] === 'terminal:output'
     )
     expect(outputHandler).toBeDefined()
 

@@ -16,12 +16,16 @@ export function createTerminalConnection(
   term.open(container)
   fitAddon.fit()
 
+  // Don't pass auth token — let the browser send the session cookie
+  // automatically. Socket.io server will read it from handshake headers.
   const socket = io({
-    auth: { token: getCookie('session') },
     transports: ['websocket'],
   })
 
-  socket.emit('terminal:attach', { session })
+  // Wait for connection before emitting attach
+  socket.on('connect', () => {
+    socket.emit('terminal:attach', { session })
+  })
 
   socket.on('terminal:output', (data: string) => {
     term.write(data)
@@ -46,9 +50,4 @@ export function createTerminalConnection(
     socket.disconnect()
     term.dispose()
   }
-}
-
-function getCookie(name: string): string {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
-  return match ? match[1] : ''
 }

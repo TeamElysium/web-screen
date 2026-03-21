@@ -81,11 +81,45 @@ describe('socket-handler', () => {
     })
   })
 
-  it('accepts connection with valid token', () => {
+  it('accepts connection with valid token in auth payload', () => {
     return new Promise<void>((resolve) => {
       const client = connectClient()
       client.on('connect', () => {
         expect(client.connected).toBe(true)
+        client.close()
+        resolve()
+      })
+    })
+  })
+
+  it('accepts connection with valid token in cookie header', () => {
+    return new Promise<void>((resolve) => {
+      const token = createSessionToken()
+      const client = ioClient(`http://localhost:${port}`, {
+        transports: ['websocket'],
+        extraHeaders: {
+          cookie: `session=${token}`,
+        },
+      })
+      client.on('connect', () => {
+        expect(client.connected).toBe(true)
+        client.close()
+        resolve()
+      })
+      client.on('connect_error', (err) => {
+        client.close()
+        throw new Error(`Cookie auth should have worked: ${err.message}`)
+      })
+    })
+  })
+
+  it('rejects connection with no token and no cookie', () => {
+    return new Promise<void>((resolve) => {
+      const client = ioClient(`http://localhost:${port}`, {
+        transports: ['websocket'],
+      })
+      client.on('connect_error', (err) => {
+        expect(err.message).toContain('auth')
         client.close()
         resolve()
       })

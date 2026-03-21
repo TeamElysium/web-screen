@@ -3,9 +3,15 @@ import * as pty from 'node-pty'
 import { validateSessionToken } from './auth'
 
 export function setupSocketHandler(io: SocketIOServer): void {
-  // Auth middleware
+  // Auth middleware — read session token from cookie or auth payload
   io.use((socket, next) => {
-    const token = socket.handshake.auth?.token
+    // Try auth payload first, then cookie header
+    let token = socket.handshake.auth?.token
+    if (!token) {
+      const cookieHeader = socket.handshake.headers?.cookie || ''
+      const match = cookieHeader.match(/(?:^|;\s*)session=([^;]*)/)
+      token = match ? match[1] : ''
+    }
     if (!token || !validateSessionToken(token)) {
       return next(new Error('auth failed'))
     }
