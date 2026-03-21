@@ -1,17 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
 
 export default function LoginPage() {
   const [error, setError] = useState('')
-  const searchParams = useSearchParams()
 
   useEffect(() => {
-    if (searchParams.get('error')) {
+    if (window.location.search.includes('error=1')) {
       setError('Wrong password')
     }
-  }, [searchParams])
+  }, [])
 
   return (
     <div className="flex min-h-screen items-center justify-center">

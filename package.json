@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "NODE_ENV=production tsx server.ts",
     "lint": "eslint",
-    "test": "vitest run",
+    "test": "vitest run && next build",
     "test:watch": "vitest"
   },
   "dependencies": {
