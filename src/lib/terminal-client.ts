@@ -5,6 +5,7 @@ import { io } from 'socket.io-client'
 export interface TerminalHandle {
   cleanup: () => void
   sendInput: (data: string) => void
+  getBufferText: () => string
 }
 
 export function createTerminalConnection(
@@ -68,6 +69,19 @@ export function createTerminalConnection(
     },
     sendInput: (data: string) => {
       socket.emit('terminal:input', data)
+    },
+    getBufferText: () => {
+      const buf = term.buffer.active
+      const lines: string[] = []
+      for (let i = 0; i < buf.length; i++) {
+        const line = buf.getLine(i)
+        if (line) lines.push(line.translateToString(true))
+      }
+      // trim trailing empty lines
+      while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+        lines.pop()
+      }
+      return lines.join('\n')
     },
   }
 }

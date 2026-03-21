@@ -21,6 +21,8 @@ export default function TerminalPage() {
   const handleRef = useRef<TerminalHandle | null>(null)
   const [error, setError] = useState('')
   const [modifiers, setModifiers] = useState({ Ctrl: false, Shift: false, Alt: false })
+  const [selectMode, setSelectMode] = useState(false)
+  const [bufferText, setBufferText] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -80,17 +82,48 @@ export default function TerminalPage() {
     setModifiers({ Ctrl: false, Shift: false, Alt: false })
   }, [modifiers])
 
+  const toggleSelectMode = useCallback(() => {
+    if (!selectMode && handleRef.current) {
+      setBufferText(handleRef.current.getBufferText())
+    }
+    setSelectMode(prev => !prev)
+  }, [selectMode])
+
   if (error) {
     return <div className="p-8 text-red-500">{error}</div>
   }
 
   return (
     <div ref={rootRef} className="flex h-dvh w-screen flex-col bg-black overflow-hidden">
-      <div ref={containerRef} className="min-h-0 flex-1" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={containerRef} className="h-full w-full" />
+        {selectMode && (
+          <div
+            className="absolute inset-0 overflow-auto bg-black/90 p-2"
+            data-testid="select-overlay"
+          >
+            <pre className="whitespace-pre-wrap break-all font-mono text-sm text-green-400 select-text">
+              {bufferText}
+            </pre>
+          </div>
+        )}
+      </div>
       <div
         className="flex flex-wrap gap-1 bg-gray-900 px-2 py-1"
         data-testid="virtual-keyboard"
       >
+        <button
+          data-testid="vk-Select"
+          onPointerDown={(e) => { e.preventDefault(); toggleSelectMode() }}
+          className={`rounded px-3 py-1 text-xs font-bold ${
+            selectMode
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-700 text-gray-300'
+          }`}
+        >
+          Select
+        </button>
+        <span className="mx-1" />
         {MODIFIER_KEYS.map((key) => (
           <button
             key={key}

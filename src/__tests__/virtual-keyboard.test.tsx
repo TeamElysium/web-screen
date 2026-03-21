@@ -14,6 +14,7 @@ vi.mock('@/lib/terminal-client', () => ({
   createTerminalConnection: vi.fn(() => ({
     cleanup: mockCleanup,
     sendInput: mockSendInput,
+    getBufferText: vi.fn(() => ''),
   })),
 }))
 
