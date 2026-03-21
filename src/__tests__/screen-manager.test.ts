@@ -1,6 +1,6 @@
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import { parseScreenList, listSessions, createSession, sessionExists, killSession as killScreenSession } from '@/lib/screen-manager'
-import { execSync } from 'child_process'
+import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 
 // --- Unit tests: parseScreenList ---
 
@@ -51,34 +51,18 @@ function uniqueName(label: string): string {
   return `${TEST_PREFIX}${Date.now()}_${testCounter++}_${label}`
 }
 
-const createdSessions: string[] = []
-
-function killSession(name: string) {
-  try {
-    const output = execSync('screen -ls 2>&1').toString()
-    const lines = output.split('\n')
-    for (const line of lines) {
-      if (line.includes(name)) {
-        const match = line.match(/\t(\d+)\./)
-        if (match) {
-          try { execSync(`kill -9 ${match[1]} 2>&1`) } catch { /* ignore */ }
-        }
-      }
-    }
-  } catch { /* ignore */ }
-}
+afterEach(() => {
+  cleanupTrackedSessions()
+})
 
 afterAll(() => {
-  for (const name of createdSessions) {
-    killSession(name)
-  }
-  try { execSync('screen -wipe 2>&1') } catch { /* ignore */ }
+  cleanupTrackedSessions()
 })
 
 describe('screen-manager integration', () => {
   it('createSession creates a detached screen session', async () => {
     const name = uniqueName('create')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
     const sessions = await listSessions()
     const found = sessions.find(s => s.name === name)
@@ -93,7 +77,7 @@ describe('screen-manager integration', () => {
 
   it('sessionExists returns true for existing session', async () => {
     const name = uniqueName('exists')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
     expect(await sessionExists(name)).toBe(true)
   })
@@ -104,18 +88,17 @@ describe('screen-manager integration', () => {
 
   it('createSession throws on duplicate name', async () => {
     const name = uniqueName('dup')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
     await expect(createSession(name)).rejects.toThrow()
   })
 
   it('killSession removes an existing session', async () => {
     const name = uniqueName('kill')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
     expect(await sessionExists(name)).toBe(true)
     await killScreenSession(name)
-    // Give screen a moment to clean up
     await new Promise(r => setTimeout(r, 200))
     expect(await sessionExists(name)).toBe(false)
   })

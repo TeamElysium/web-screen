@@ -5,27 +5,13 @@ import { io as ioClient, Socket as ClientSocket } from 'socket.io-client'
 import { setupSocketHandler } from '@/lib/socket-handler'
 import { createSessionToken } from '@/lib/auth'
 import { createSession } from '@/lib/screen-manager'
-import { execSync } from 'child_process'
+import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 import type { AddressInfo } from 'net'
 
 const TEST_PREFIX = 'wst_sock_'
 let testCounter = 0
 function uniqueName(label: string): string {
   return `${TEST_PREFIX}${Date.now()}_${testCounter++}_${label}`
-}
-
-const createdSessions: string[] = []
-
-function killSession(name: string) {
-  try {
-    const output = execSync('screen -ls 2>&1').toString()
-    for (const line of output.split('\n')) {
-      if (line.includes(name)) {
-        const match = line.match(/\t(\d+)\./)
-        if (match) try { execSync(`kill -9 ${match[1]} 2>&1`) } catch { /* */ }
-      }
-    }
-  } catch { /* */ }
 }
 
 let httpServer: ReturnType<typeof createServer>
@@ -50,6 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  cleanupTrackedSessions()
   return new Promise<void>((resolve) => {
     ioServer.close(() => {
       httpServer.close(() => resolve())
@@ -58,8 +45,7 @@ afterEach(() => {
 })
 
 afterAll(() => {
-  for (const name of createdSessions) killSession(name)
-  try { execSync('screen -wipe 2>&1') } catch { /* */ }
+  cleanupTrackedSessions()
 })
 
 function connectClient(token?: string): ClientSocket {
@@ -128,7 +114,7 @@ describe('socket-handler', () => {
 
   it('attaches to screen session and receives output', async () => {
     const name = uniqueName('attach')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
 
     return new Promise<void>((resolve) => {
@@ -137,12 +123,10 @@ describe('socket-handler', () => {
         client.emit('terminal:attach', { session: name })
       })
       client.on('terminal:output', (data: string) => {
-        // screen session attached — any output means PTY is working
         expect(typeof data).toBe('string')
         client.close()
         resolve()
       })
-      // timeout fallback
       setTimeout(() => {
         client.close()
         resolve()
@@ -152,7 +136,7 @@ describe('socket-handler', () => {
 
   it('sends input to PTY', async () => {
     const name = uniqueName('input')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
 
     return new Promise<void>((resolve) => {
@@ -164,11 +148,9 @@ describe('socket-handler', () => {
       client.on('terminal:output', () => {
         if (!attached) {
           attached = true
-          // Send a command — if no error thrown, input works
           client.emit('terminal:input', 'echo hello\n')
         }
       })
-      // Give it time to process
       setTimeout(() => {
         expect(attached).toBe(true)
         client.close()
@@ -179,7 +161,7 @@ describe('socket-handler', () => {
 
   it('handles resize event without error', async () => {
     const name = uniqueName('resize')
-    createdSessions.push(name)
+    trackSession(name)
     await createSession(name)
 
     return new Promise<void>((resolve) => {
