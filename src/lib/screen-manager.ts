@@ -51,3 +51,12 @@ export async function sessionExists(name: string): Promise<boolean> {
   const sessions = await listSessions()
   return sessions.some(s => s.name === name)
 }
+
+export async function killSession(name: string): Promise<void> {
+  const sessions = await listSessions()
+  const session = sessions.find(s => s.name === name)
+  if (!session) {
+    throw new Error(`Session "${name}" not found`)
+  }
+  await execAsync(`screen -S ${session.id}.${session.name} -X quit`)
+}

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { listSessions, createSession, sessionExists } from '@/lib/screen-manager'
+import { listSessions, createSession, sessionExists, killSession } from '@/lib/screen-manager'
 
 export async function GET() {
   const sessions = await listSessions()
@@ -19,4 +19,19 @@ export async function POST(request: Request) {
 
   await createSession(name.trim())
   return NextResponse.json({ name: name.trim() }, { status: 201 })
+}
+
+export async function DELETE(request: Request) {
+  const { name } = await request.json()
+
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  }
+
+  if (!(await sessionExists(name.trim()))) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+  }
+
+  await killSession(name.trim())
+  return NextResponse.json({ ok: true })
 }

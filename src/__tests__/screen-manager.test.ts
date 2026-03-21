@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { parseScreenList, listSessions, createSession, sessionExists } from '@/lib/screen-manager'
+import { parseScreenList, listSessions, createSession, sessionExists, killSession as killScreenSession } from '@/lib/screen-manager'
 import { execSync } from 'child_process'
 
 // --- Unit tests: parseScreenList ---
@@ -107,5 +107,20 @@ describe('screen-manager integration', () => {
     createdSessions.push(name)
     await createSession(name)
     await expect(createSession(name)).rejects.toThrow()
+  })
+
+  it('killSession removes an existing session', async () => {
+    const name = uniqueName('kill')
+    createdSessions.push(name)
+    await createSession(name)
+    expect(await sessionExists(name)).toBe(true)
+    await killScreenSession(name)
+    // Give screen a moment to clean up
+    await new Promise(r => setTimeout(r, 200))
+    expect(await sessionExists(name)).toBe(false)
+  })
+
+  it('killSession throws for non-existing session', async () => {
+    await expect(killScreenSession(uniqueName('ghost'))).rejects.toThrow('not found')
   })
 })

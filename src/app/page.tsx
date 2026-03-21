@@ -26,6 +26,21 @@ export default function Home() {
     fetchSessions()
   }, [fetchSessions])
 
+  async function handleDelete(name: string) {
+    setError('')
+    const res = await fetch('/api/sessions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (res.ok) {
+      fetchSessions()
+    } else {
+      const data = await res.json()
+      setError(data.error || 'Failed to delete session')
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -94,12 +109,18 @@ export default function Home() {
                     {s.status}
                   </span>
                 </td>
-                <td className="py-2">
+                <td className="py-2 flex gap-2">
                   <button
                     onClick={() => router.push(`/terminal/${s.name}`)}
                     className="rounded bg-gray-800 px-3 py-1 text-sm text-white hover:bg-gray-700"
                   >
                     Connect
+                  </button>
+                  <button
+                    onClick={() => handleDelete(s.name)}
+                    className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+                  >
+                    Delete
                   </button>
                 </td>
               </tr>

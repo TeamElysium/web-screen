@@ -9,6 +9,7 @@ vi.mock('@/lib/screen-manager', () => ({
   listSessions: vi.fn().mockResolvedValue(mockSessions),
   createSession: vi.fn().mockResolvedValue(undefined),
   sessionExists: vi.fn().mockResolvedValue(false),
+  killSession: vi.fn().mockResolvedValue(undefined),
 }))
 
 describe('GET /api/sessions', () => {
@@ -68,5 +69,51 @@ describe('POST /api/sessions', () => {
     })
     const res = await POST(request)
     expect(res.status).toBe(409)
+  })
+})
+
+describe('DELETE /api/sessions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('deletes an existing session and returns ok', async () => {
+    const { sessionExists, killSession } = await import('@/lib/screen-manager')
+    vi.mocked(sessionExists).mockResolvedValueOnce(true)
+
+    const { DELETE } = await import('@/app/api/sessions/route')
+    const request = new Request('http://localhost/api/sessions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'session1' }),
+    })
+    const res = await DELETE(request)
+    expect(res.status).toBe(200)
+    expect(killSession).toHaveBeenCalledWith('session1')
+  })
+
+  it('returns 400 for empty name', async () => {
+    const { DELETE } = await import('@/app/api/sessions/route')
+    const request = new Request('http://localhost/api/sessions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '' }),
+    })
+    const res = await DELETE(request)
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 for non-existing session', async () => {
+    const { sessionExists } = await import('@/lib/screen-manager')
+    vi.mocked(sessionExists).mockResolvedValueOnce(false)
+
+    const { DELETE } = await import('@/app/api/sessions/route')
+    const request = new Request('http://localhost/api/sessions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ghost' }),
+    })
+    const res = await DELETE(request)
+    expect(res.status).toBe(404)
   })
 })
