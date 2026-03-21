@@ -2,15 +2,17 @@
 
 ## 현재 상태
 
-**마지막 커밋**: `f26b8fc` — Set up project: CLAUDE.md, vitest, core dependencies
 **브랜치**: `main`
+**총 테스트**: 41개 (전체 통과)
 
 ### 완료된 작업
-- [x] Next.js 16 프로젝트 생성 (App Router, TypeScript, Tailwind CSS 4)
-- [x] 핵심 의존성 설치 (socket.io, node-pty, xterm.js, addon-fit)
-- [x] vitest + testing-library 설정 및 smoke test 통과
-- [x] CLAUDE.md 작성 (아키텍처, 원칙, 구조 문서화)
-- [x] .env.example 추가 (PASSWORD, ALLOWED_IPS, PORT)
+- [x] Phase 0: 프로젝트 세팅 (Next.js 16, vitest, 의존성, CLAUDE.md)
+- [x] Phase 1: screen-manager — `listSessions`, `createSession`, `sessionExists` (9 tests)
+- [x] Phase 2: auth — `checkIP`, `verifyPassword`, `createSessionToken`, `validateSessionToken` (15 tests)
+- [x] Phase 3: Custom Server + Socket Handler — server.ts, socket-handler.ts (5 tests)
+- [x] Phase 4: 로그인 페이지 — `/login`, `POST /api/auth`, middleware (3 tests)
+- [x] Phase 5: 세션 목록 페이지 — `/`, `GET/POST /api/sessions` (4 tests)
+- [x] Phase 6: 터미널 페이지 — `/terminal/[session]`, Terminal.tsx, terminal-client.ts (4 tests)
 
 ### 현재 파일 구조
 ```
