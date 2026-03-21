@@ -1,38 +1,25 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 export default function LoginPage() {
-  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const router = useRouter()
+  const searchParams = useSearchParams()
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-
-    const res = await fetch('/api/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    })
-
-    if (res.ok) {
-      router.push('/')
-    } else {
+  useEffect(() => {
+    if (searchParams.get('error')) {
       setError('Wrong password')
     }
-  }
+  }, [searchParams])
 
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 p-8">
+      <form action="/api/auth" method="POST" className="flex flex-col gap-4 p-8">
         <h1 className="text-2xl font-bold">web-screen</h1>
         <input
           type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          name="password"
           placeholder="Password"
           className="rounded border px-4 py-2"
           autoFocus

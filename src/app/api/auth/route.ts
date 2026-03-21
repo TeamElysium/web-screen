@@ -1,18 +1,50 @@
 import { NextResponse } from 'next/server'
 import { verifyPassword, createSessionToken } from '@/lib/auth'
 
+function getBaseUrl(request: Request): string {
+  const host = request.headers.get('host')
+  const proto = request.headers.get('x-forwarded-proto') || 'http'
+  if (host) {
+    return `${proto}://${host}`
+  }
+  return new URL(request.url).origin
+}
+
 export async function POST(request: Request) {
-  const { password } = await request.json()
+  let password = ''
+  const baseUrl = getBaseUrl(request)
+
+  const contentType = request.headers.get('content-type') || ''
+  if (contentType.includes('application/json')) {
+    const body = await request.json()
+    password = body.password || ''
+  } else if (contentType.includes('application/x-www-form-urlencoded')) {
+    const formData = await request.formData()
+    password = (formData.get('password') as string) || ''
+  }
 
   if (!verifyPassword(password)) {
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      return NextResponse.redirect(`${baseUrl}/login?error=1`, 303)
+    }
     return NextResponse.json({ error: 'Invalid password' }, { status: 401 })
   }
 
   const token = createSessionToken()
+
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const response = NextResponse.redirect(`${baseUrl}/`, 303)
+    response.headers.set(
+      'Set-Cookie',
+      `session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
+    )
+    return response
+  }
+
   const response = NextResponse.json({ ok: true })
   response.headers.set(
     'Set-Cookie',
-    `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
+    `session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
   )
   return response
 }
