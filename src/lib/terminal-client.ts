@@ -2,10 +2,15 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { io } from 'socket.io-client'
 
+export interface TerminalHandle {
+  cleanup: () => void
+  sendInput: (data: string) => void
+}
+
 export function createTerminalConnection(
   session: string,
   container: HTMLElement,
-): () => void {
+): TerminalHandle {
   const term = new Terminal({
     cursorBlink: true,
     convertEol: true,
@@ -45,9 +50,14 @@ export function createTerminalConnection(
   }
   window.addEventListener('resize', handleResize)
 
-  return () => {
-    window.removeEventListener('resize', handleResize)
-    socket.disconnect()
-    term.dispose()
+  return {
+    cleanup: () => {
+      window.removeEventListener('resize', handleResize)
+      socket.disconnect()
+      term.dispose()
+    },
+    sendInput: (data: string) => {
+      socket.emit('terminal:input', data)
+    },
   }
 }

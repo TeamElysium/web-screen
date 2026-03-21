@@ -8,8 +8,8 @@ export default function Terminal({ session }: { session: string }) {
 
   useEffect(() => {
     if (!containerRef.current) return
-    const cleanup = createTerminalConnection(session, containerRef.current)
-    return cleanup
+    const handle = createTerminalConnection(session, containerRef.current)
+    return () => handle.cleanup()
   }, [session])
 
   return (

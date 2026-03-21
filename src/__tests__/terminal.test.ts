@@ -53,7 +53,7 @@ describe('Terminal component logic', () => {
     const { io } = await import('socket.io-client')
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
-    const cleanup = createTerminalConnection('my-session', document.createElement('div'))
+    const handle = createTerminalConnection('my-session', document.createElement('div'))
 
     expect(io).toHaveBeenCalled()
 
@@ -70,7 +70,7 @@ describe('Terminal component logic', () => {
     connectHandler![1]()
     expect(mockEmit).toHaveBeenCalledWith('terminal:attach', { session: 'my-session' })
 
-    cleanup()
+    handle.cleanup()
   })
 
   it('forwards terminal output to xterm write', async () => {
@@ -106,10 +106,20 @@ describe('Terminal component logic', () => {
   it('disconnects socket and disposes terminal on cleanup', async () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
-    const cleanup = createTerminalConnection('test-session', document.createElement('div'))
-    cleanup()
+    const handle = createTerminalConnection('test-session', document.createElement('div'))
+    handle.cleanup()
 
     expect(mockDisconnect).toHaveBeenCalled()
     expect(mockDispose).toHaveBeenCalled()
+  })
+
+  it('sendInput emits terminal:input via socket', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+
+    const handle = createTerminalConnection('test-session', document.createElement('div'))
+    handle.sendInput('\x1b')
+
+    expect(mockEmit).toHaveBeenCalledWith('terminal:input', '\x1b')
+    handle.cleanup()
   })
 })
