@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "tsx server.ts",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production tsx server.ts",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -14,7 +14,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "next": "16.2.1",
-    "node-pty": "^1.1.0",
+    "node-pty": "^1.2.0-beta.12",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "socket.io": "^4.8.3",
@@ -32,6 +32,7 @@
     "eslint-config-next": "16.2.1",
     "jsdom": "^29.0.1",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.0"
   }
