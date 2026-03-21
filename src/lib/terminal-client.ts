@@ -30,6 +30,7 @@ export function createTerminalConnection(
   // Wait for connection before emitting attach
   socket.on('connect', () => {
     socket.emit('terminal:attach', { session })
+    socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
   })
 
   socket.on('terminal:output', (data: string) => {
@@ -44,15 +45,24 @@ export function createTerminalConnection(
     socket.emit('terminal:input', data)
   })
 
+  let ptyCols = term.cols
   const handleResize = () => {
     fitAddon.fit()
-    socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+    term.scrollToBottom()
+    // cols 변경 시에만 PTY resize 전송 — rows만 변하면(키보드 올라옴/내려감)
+    // PTY에 알리지 않아 screen redraw 없이 xterm 로컬 뷰포트만 조정
+    if (term.cols !== ptyCols) {
+      ptyCols = term.cols
+      socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+    }
   }
-  window.addEventListener('resize', handleResize)
+
+  const resizeObserver = new ResizeObserver(handleResize)
+  resizeObserver.observe(container)
 
   return {
     cleanup: () => {
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
       socket.disconnect()
       term.dispose()
     },

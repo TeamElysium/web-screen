@@ -21,6 +21,21 @@ export default function TerminalPage() {
   const handleRef = useRef<TerminalHandle | null>(null)
   const [error, setError] = useState('')
   const [modifiers, setModifiers] = useState({ Ctrl: false, Shift: false, Alt: false })
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+
+    const syncHeight = () => {
+      const h = window.visualViewport?.height ?? window.innerHeight
+      root.style.height = `${h}px`
+    }
+    syncHeight()
+
+    window.visualViewport?.addEventListener('resize', syncHeight)
+    return () => window.visualViewport?.removeEventListener('resize', syncHeight)
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current || !params.session) return
@@ -70,7 +85,7 @@ export default function TerminalPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-black">
+    <div ref={rootRef} className="flex h-dvh w-screen flex-col bg-black overflow-hidden">
       <div ref={containerRef} className="min-h-0 flex-1" />
       <div
         className="flex flex-wrap gap-1 bg-gray-900 px-2 py-1"

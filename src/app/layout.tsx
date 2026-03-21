@@ -28,6 +28,12 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `
+          document.querySelector('meta[name=viewport]')
+            ?.setAttribute('content', 'width=device-width, initial-scale=1, interactive-widget=resizes-content');
+        `}} />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
