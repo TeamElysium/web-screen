@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: [],
+    exclude: ['e2e/**', 'node_modules/**'],
     environmentMatchGlobs: [
       ['src/__tests__/socket-handler.test.ts', 'node'],
       ['src/__tests__/screen-manager.test.ts', 'node'],

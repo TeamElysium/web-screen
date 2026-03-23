@@ -28,6 +28,15 @@ export function createTerminalConnection(
   term.unicode.activeVersion = '11'
   term.open(container)
 
+  // Constrain xterm's root element to fill the container exactly.
+  // Without this, xterm's DOM (including scrollback buffer) expands
+  // beyond the container, causing page-level overflow.
+  const xtermEl = container.querySelector('.xterm') as HTMLElement
+  if (xtermEl) {
+    xtermEl.style.height = '100%'
+    xtermEl.style.overflow = 'hidden'
+  }
+
   let socket: ReturnType<typeof io> | null = null
   let ptyCols = term.cols
   let ptyRows = term.rows

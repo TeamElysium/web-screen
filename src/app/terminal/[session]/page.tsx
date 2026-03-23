@@ -44,15 +44,16 @@ export default function TerminalPage() {
   useEffect(() => {
     if (!containerRef.current || !params.session) return
 
+    let cancelled = false
+
     import('@/lib/terminal-client').then(({ createTerminalConnection }) => {
-      if (containerRef.current) {
-        handleRef.current = createTerminalConnection(params.session, containerRef.current)
-        const stored = sessionStorage.getItem('terminal-font-size')
-        if (stored) {
-          const size = parseInt(stored, 10)
-          handleRef.current.setFontSize(size)
-          setFontSizeState(size)
-        }
+      if (cancelled || !containerRef.current) return
+      handleRef.current = createTerminalConnection(params.session, containerRef.current)
+      const stored = sessionStorage.getItem('terminal-font-size')
+      if (stored) {
+        const size = parseInt(stored, 10)
+        handleRef.current.setFontSize(size)
+        setFontSizeState(size)
       }
     }).catch((err) => {
       console.error('Failed to load terminal:', err)
@@ -60,6 +61,7 @@ export default function TerminalPage() {
     })
 
     return () => {
+      cancelled = true
       handleRef.current?.cleanup()
       handleRef.current = null
     }
@@ -137,8 +139,8 @@ export default function TerminalPage() {
           Fullscreen
         </button>
       </div>
-      <div className="relative min-h-0 flex-1">
-        <div ref={containerRef} className="h-full w-full" />
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
         {selectMode && (
           <div
             className="absolute inset-0 overflow-auto bg-black/90 p-2"
