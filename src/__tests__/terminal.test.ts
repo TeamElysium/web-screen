@@ -41,6 +41,9 @@ vi.mock('@xterm/xterm', () => {
       loadAddon = mockLoadAddon
       cols = 80
       rows = 30
+      options: Record<string, any> = {}
+      buffer = { active: { length: 0, getLine: () => null } }
+      scrollToBottom = vi.fn()
     },
   }
 })
@@ -148,6 +151,18 @@ describe('Terminal component logic', () => {
     expect(mockResizeObserverDisconnect).toHaveBeenCalled()
     expect(mockDisconnect).toHaveBeenCalled()
     expect(mockDispose).toHaveBeenCalled()
+  })
+
+  it('emits terminal:resize after setFontSize to sync PTY cols/rows', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+
+    const handle = createTerminalConnection('test-session', document.createElement('div'))
+
+    mockEmit.mockClear()
+    handle.setFontSize(20)
+
+    expect(mockEmit).toHaveBeenCalledWith('terminal:resize', { cols: 80, rows: 30 })
+    handle.cleanup()
   })
 
   it('sendInput emits terminal:input via socket', async () => {

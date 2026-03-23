@@ -24,6 +24,7 @@ export default function TerminalPage() {
   const [modifiers, setModifiers] = useState({ Ctrl: false, Shift: false, Alt: false })
   const [selectMode, setSelectMode] = useState(false)
   const [bufferText, setBufferText] = useState('')
+  const [fontSize, setFontSizeState] = useState(14)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -46,6 +47,12 @@ export default function TerminalPage() {
     import('@/lib/terminal-client').then(({ createTerminalConnection }) => {
       if (containerRef.current) {
         handleRef.current = createTerminalConnection(params.session, containerRef.current)
+        const stored = sessionStorage.getItem('terminal-font-size')
+        if (stored) {
+          const size = parseInt(stored, 10)
+          handleRef.current.setFontSize(size)
+          setFontSizeState(size)
+        }
       }
     }).catch(() => {
       setError('Failed to load terminal')
@@ -82,6 +89,16 @@ export default function TerminalPage() {
     handleRef.current.sendInput(out)
     setModifiers({ Ctrl: false, Shift: false, Alt: false })
   }, [modifiers])
+
+  const changeFontSize = useCallback((delta: number) => {
+    if (!handleRef.current) return
+    const current = handleRef.current.getFontSize()
+    const next = current + delta
+    if (next < 8 || next > 32) return
+    handleRef.current.setFontSize(next)
+    setFontSizeState(next)
+    sessionStorage.setItem('terminal-font-size', String(next))
+  }, [])
 
   const toggleSelectMode = useCallback(() => {
     if (!selectMode && handleRef.current) {
@@ -146,6 +163,26 @@ export default function TerminalPage() {
           }`}
         >
           Select
+        </button>
+        <button
+          data-testid="vk-font-down"
+          onPointerDown={(e) => { e.preventDefault(); changeFontSize(-2) }}
+          className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
+        >
+          A-
+        </button>
+        <span
+          data-testid="vk-font-size"
+          className="px-1 py-1 text-xs text-gray-400"
+        >
+          {fontSize}
+        </span>
+        <button
+          data-testid="vk-font-up"
+          onPointerDown={(e) => { e.preventDefault(); changeFontSize(2) }}
+          className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
+        >
+          A+
         </button>
         <span className="mx-1" />
         {MODIFIER_KEYS.map((key) => (

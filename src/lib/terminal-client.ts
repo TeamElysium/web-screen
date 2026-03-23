@@ -6,6 +6,8 @@ export interface TerminalHandle {
   cleanup: () => void
   sendInput: (data: string) => void
   getBufferText: () => string
+  getFontSize: () => number
+  setFontSize: (size: number) => void
 }
 
 export function createTerminalConnection(
@@ -69,6 +71,12 @@ export function createTerminalConnection(
     },
     sendInput: (data: string) => {
       socket.emit('terminal:input', data)
+    },
+    getFontSize: () => term.options.fontSize ?? 14,
+    setFontSize: (size: number) => {
+      term.options.fontSize = size
+      fitAddon.fit()
+      socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
     },
     getBufferText: () => {
       const buf = term.buffer.active

@@ -13,6 +13,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
+};
+
 export const metadata: Metadata = {
   title: "web-screen",
   description: "Web terminal for screen sessions",
@@ -28,12 +34,6 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: `
-          document.querySelector('meta[name=viewport]')
-            ?.setAttribute('content', 'width=device-width, initial-scale=1, interactive-widget=resizes-content');
-        `}} />
-      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

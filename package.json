@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "next build",
+    "build": "NODE_ENV=production next build",
     "start": "NODE_ENV=production tsx server.ts",
     "lint": "eslint",
     "test": "vitest run; EXIT=$?; tsx src/__tests__/helpers/global-teardown.ts; [ $EXIT -eq 0 ] && next build",
