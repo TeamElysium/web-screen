@@ -1,6 +1,6 @@
 'use client'
 
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { TerminalHandle } from '@/lib/terminal-client'
 
@@ -17,6 +17,7 @@ const ACTION_KEYS = [
 
 export default function TerminalPage() {
   const params = useParams<{ session: string }>()
+  const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
   const handleRef = useRef<TerminalHandle | null>(null)
   const [error, setError] = useState('')
@@ -95,6 +96,29 @@ export default function TerminalPage() {
 
   return (
     <div ref={rootRef} className="flex h-dvh w-screen flex-col bg-black overflow-hidden">
+      <div className="flex select-none items-center justify-between bg-gray-900 px-2 py-1" data-testid="terminal-header">
+        <button
+          data-testid="btn-sessions"
+          onClick={() => router.push('/')}
+          className="shrink-0 rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
+        >
+          Sessions
+        </button>
+        <span className="min-w-0 truncate text-xs text-gray-500">{params.session}</span>
+        <button
+          data-testid="btn-fullscreen"
+          onClick={() => {
+            if (document.fullscreenElement) {
+              document.exitFullscreen()
+            } else {
+              rootRef.current?.requestFullscreen()
+            }
+          }}
+          className="shrink-0 rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
+        >
+          Fullscreen
+        </button>
+      </div>
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="h-full w-full" />
         {selectMode && (

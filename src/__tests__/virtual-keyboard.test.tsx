@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 // Mock next/navigation
+const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
   useParams: () => ({ session: 'test-session' }),
+  useRouter: () => ({ push: mockPush }),
 }))
 
 // Mock terminal-client — dynamic import returns a promise
@@ -126,5 +128,38 @@ describe('Virtual keyboard', () => {
     fireEvent.pointerDown(screen.getByTestId('vk-Esc'))
 
     expect(ctrlBtn.className).toContain('bg-gray-700')
+  })
+})
+
+describe('Terminal header', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders header with Sessions button, session name, and Fullscreen button', async () => {
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const header = screen.getByTestId('terminal-header')
+    expect(header).toBeDefined()
+    expect(screen.getByTestId('btn-sessions')).toBeDefined()
+    expect(screen.getByTestId('btn-fullscreen')).toBeDefined()
+    expect(header.textContent).toContain('test-session')
+  })
+
+  it('navigates to session list on Sessions button click', async () => {
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    fireEvent.click(screen.getByTestId('btn-sessions'))
+    expect(mockPush).toHaveBeenCalledWith('/')
+  })
+
+  it('session name truncates to prevent button overflow', async () => {
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const sessionSpan = screen.getByTestId('terminal-header').querySelector('[class*="truncate"]')
+    expect(sessionSpan).not.toBeNull()
   })
 })

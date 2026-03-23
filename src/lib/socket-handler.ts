@@ -28,7 +28,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
       }
 
       ptyProcess = pty.spawn('screen', ['-x', session], {
-        name: 'xterm-color',
+        name: 'xterm-256color',
         cols: 80,
         rows: 30,
         cwd: process.env.HOME,
