@@ -1,5 +1,6 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { io } from 'socket.io-client'
 
 export interface TerminalHandle {
@@ -17,46 +18,72 @@ export function createTerminalConnection(
   const term = new Terminal({
     cursorBlink: true,
     convertEol: true,
+    allowProposedApi: true,
   })
 
   const fitAddon = new FitAddon()
+  const unicode11Addon = new Unicode11Addon()
   term.loadAddon(fitAddon)
+  term.loadAddon(unicode11Addon)
+  term.unicode.activeVersion = '11'
   term.open(container)
-  fitAddon.fit()
 
-  // Don't pass auth token — let the browser send the session cookie
-  // automatically. Socket.io server will read it from handshake headers.
-  const socket = io({
-    transports: ['websocket'],
-  })
+  let socket: ReturnType<typeof io> | null = null
+  let ptyCols = term.cols
+  let ptyRows = term.rows
+  let firstOutput = true
 
-  // Wait for connection before emitting attach
-  socket.on('connect', () => {
-    socket.emit('terminal:attach', { session })
-    socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
-  })
+  // xterm needs at least one render frame after open() before fitAddon can
+  // measure character cell dimensions. If we fit() + connect immediately,
+  // fit() returns stale 80x30 defaults. Wait one frame so xterm renders,
+  // then fit and connect with accurate dimensions.
+  requestAnimationFrame(() => {
+    fitAddon.fit()
+    ptyCols = term.cols
+    ptyRows = term.rows
 
-  socket.on('terminal:output', (data: string) => {
-    term.write(data)
-  })
+    socket = io({ transports: ['websocket'] })
 
-  socket.on('terminal:exit', () => {
-    term.write('\r\n[Session ended]\r\n')
+    socket.on('connect', () => {
+      fitAddon.fit()
+      ptyCols = term.cols
+      ptyRows = term.rows
+      socket!.emit('terminal:attach', { session, cols: term.cols, rows: term.rows })
+    })
+
+    socket.on('terminal:output', (data: string) => {
+      term.write(data)
+      if (firstOutput) {
+        firstOutput = false
+        requestAnimationFrame(() => {
+          const colsBefore = term.cols
+          const rowsBefore = term.rows
+          fitAddon.fit()
+          if (term.cols !== colsBefore || term.rows !== rowsBefore) {
+            ptyCols = term.cols
+            ptyRows = term.rows
+            socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+          }
+        })
+      }
+    })
+
+    socket.on('terminal:exit', () => {
+      term.write('\r\n[Session ended]\r\n')
+    })
   })
 
   term.onData((data: string) => {
-    socket.emit('terminal:input', data)
+    socket?.emit('terminal:input', data)
   })
 
-  let ptyCols = term.cols
   const handleResize = () => {
     fitAddon.fit()
     term.scrollToBottom()
-    // cols 변경 시에만 PTY resize 전송 — rows만 변하면(키보드 올라옴/내려감)
-    // PTY에 알리지 않아 screen redraw 없이 xterm 로컬 뷰포트만 조정
-    if (term.cols !== ptyCols) {
+    if (term.cols !== ptyCols || term.rows !== ptyRows) {
       ptyCols = term.cols
-      socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+      ptyRows = term.rows
+      socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
     }
   }
 
@@ -66,17 +93,17 @@ export function createTerminalConnection(
   return {
     cleanup: () => {
       resizeObserver.disconnect()
-      socket.disconnect()
+      socket?.disconnect()
       term.dispose()
     },
     sendInput: (data: string) => {
-      socket.emit('terminal:input', data)
+      socket?.emit('terminal:input', data)
     },
     getFontSize: () => term.options.fontSize ?? 14,
     setFontSize: (size: number) => {
       term.options.fontSize = size
       fitAddon.fit()
-      socket.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+      socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
     },
     getBufferText: () => {
       const buf = term.buffer.active

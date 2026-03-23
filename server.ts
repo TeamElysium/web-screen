@@ -1,3 +1,5 @@
+import { config } from 'dotenv'
+config({ override: true })
 import { createServer } from 'http'
 import next from 'next'
 import { Server as SocketIOServer } from 'socket.io'

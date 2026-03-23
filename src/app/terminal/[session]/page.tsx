@@ -54,8 +54,9 @@ export default function TerminalPage() {
           setFontSizeState(size)
         }
       }
-    }).catch(() => {
-      setError('Failed to load terminal')
+    }).catch((err) => {
+      console.error('Failed to load terminal:', err)
+      setError(`Failed to load terminal: ${err?.message ?? err}`)
     })
 
     return () => {

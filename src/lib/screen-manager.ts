@@ -44,7 +44,7 @@ export async function createSession(name: string): Promise<void> {
   if (await sessionExists(name)) {
     throw new Error(`Session "${name}" already exists`)
   }
-  await execAsync(`screen -dmS ${name}`)
+  await execAsync(`screen -dmUS ${name}`)
 }
 
 export async function sessionExists(name: string): Promise<boolean> {

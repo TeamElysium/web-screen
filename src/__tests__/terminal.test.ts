@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+// Capture rAF callbacks to fire them manually
+const rafCallbacks: (() => void)[] = []
+vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+  rafCallbacks.push(cb)
+  return rafCallbacks.length
+})
+
 // Mock ResizeObserver (not available in jsdom)
 const mockResizeObserverDisconnect = vi.fn()
 globalThis.ResizeObserver = class {
@@ -44,6 +51,16 @@ vi.mock('@xterm/xterm', () => {
       options: Record<string, any> = {}
       buffer = { active: { length: 0, getLine: () => null } }
       scrollToBottom = vi.fn()
+      unicode = { activeVersion: '6', versions: ['6'], register: vi.fn() }
+    },
+  }
+})
+
+vi.mock('@xterm/addon-unicode11', () => {
+  return {
+    Unicode11Addon: class {
+      activate = vi.fn()
+      dispose = vi.fn()
     },
   }
 })
@@ -56,58 +73,64 @@ vi.mock('@xterm/addon-fit', () => {
   }
 })
 
+/** Flush the first rAF (socket creation) */
+function flushRaf() {
+  const cb = rafCallbacks.shift()
+  cb?.()
+}
+
+function getConnectHandler() {
+  return mockOn.mock.calls.find((call: any[]) => call[0] === 'connect')
+}
+
 describe('Terminal component logic', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    rafCallbacks.length = 0
   })
 
-  it('does not emit terminal:attach immediately — waits for connect event', async () => {
+  it('does not emit terminal:attach immediately — waits for rAF + connect', async () => {
     const { io } = await import('socket.io-client')
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     const handle = createTerminalConnection('my-session', document.createElement('div'))
 
+    // Before rAF: no socket created, no emit
+    expect(io).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+
+    // After rAF: socket created but not yet connected
+    flushRaf()
     expect(io).toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalledWith('terminal:attach', expect.anything())
 
-    // terminal:attach must NOT be called directly — it should be inside a 'connect' handler
-    expect(mockEmit).not.toHaveBeenCalledWith('terminal:attach', { session: 'my-session' })
-
-    // Verify a 'connect' handler was registered
-    const connectHandler = mockOn.mock.calls.find(
-      (call: any[]) => call[0] === 'connect'
-    )
+    // After connect event: attach emitted with dimensions
+    const connectHandler = getConnectHandler()
     expect(connectHandler).toBeDefined()
-
-    // Simulate the connect event firing — now terminal:attach should be emitted
     connectHandler![1]()
-    expect(mockEmit).toHaveBeenCalledWith('terminal:attach', { session: 'my-session' })
-    // Must also send initial resize so PTY matches actual terminal size
-    expect(mockEmit).toHaveBeenCalledWith('terminal:resize', { cols: 80, rows: 30 })
+    expect(mockEmit).toHaveBeenCalledWith('terminal:attach', {
+      session: 'my-session',
+      cols: 80,
+      rows: 30,
+    })
 
     handle.cleanup()
   })
 
-  it('sends terminal:resize immediately after attach on connect', async () => {
+  it('sends cols/rows with terminal:attach on connect', async () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     const handle = createTerminalConnection('narrow-session', document.createElement('div'))
+    flushRaf()
 
-    const connectHandler = mockOn.mock.calls.find(
-      (call: any[]) => call[0] === 'connect'
-    )
+    const connectHandler = getConnectHandler()
     connectHandler![1]()
 
-    // Verify resize is sent with terminal's actual dimensions
-    const emitCalls = mockEmit.mock.calls
-    const attachIdx = emitCalls.findIndex(
-      (call: any[]) => call[0] === 'terminal:attach'
-    )
-    const resizeIdx = emitCalls.findIndex(
-      (call: any[]) => call[0] === 'terminal:resize'
-    )
-    expect(attachIdx).toBeGreaterThanOrEqual(0)
-    expect(resizeIdx).toBeGreaterThan(attachIdx)
-    expect(emitCalls[resizeIdx][1]).toEqual({ cols: 80, rows: 30 })
+    expect(mockEmit).toHaveBeenCalledWith('terminal:attach', {
+      session: 'narrow-session',
+      cols: 80,
+      rows: 30,
+    })
 
     handle.cleanup()
   })
@@ -116,14 +139,13 @@ describe('Terminal component logic', () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
 
-    // Find the 'terminal:output' handler registered via socket.on
     const outputHandler = mockOn.mock.calls.find(
       (call: any[]) => call[0] === 'terminal:output'
     )
     expect(outputHandler).toBeDefined()
 
-    // Simulate server sending output
     outputHandler![1]('hello world')
     expect(mockWrite).toHaveBeenCalledWith('hello world')
   })
@@ -132,12 +154,12 @@ describe('Terminal component logic', () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
 
-    // Find the onData callback registered on the terminal
+    // onData is registered synchronously (outside rAF)
     expect(mockOnData).toHaveBeenCalled()
     const onDataCallback = mockOnData.mock.calls[0][0]
 
-    // Simulate user typing
     onDataCallback('ls\n')
     expect(mockEmit).toHaveBeenCalledWith('terminal:input', 'ls\n')
   })
@@ -146,6 +168,7 @@ describe('Terminal component logic', () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     const handle = createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
     handle.cleanup()
 
     expect(mockResizeObserverDisconnect).toHaveBeenCalled()
@@ -157,6 +180,7 @@ describe('Terminal component logic', () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     const handle = createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
 
     mockEmit.mockClear()
     handle.setFontSize(20)
@@ -169,6 +193,7 @@ describe('Terminal component logic', () => {
     const { createTerminalConnection } = await import('@/lib/terminal-client')
 
     const handle = createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
     handle.sendInput('\x1b')
 
     expect(mockEmit).toHaveBeenCalledWith('terminal:input', '\x1b')
