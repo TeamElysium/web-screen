@@ -16,7 +16,9 @@ app.prepare().then(() => {
     handle(req, res)
   })
 
-  const io = new SocketIOServer(httpServer)
+  const io = new SocketIOServer(httpServer, {
+    maxHttpBufferSize: 64 * 1024, // 64KB
+  })
   setupSocketHandler(io)
 
   httpServer.listen(port, () => {
