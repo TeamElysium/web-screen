@@ -155,6 +155,8 @@ describe('Mutation: fit()이 크기를 변경할 때 resize 전송 검증', () =
     // cols 동일, rows만 변경
     nextFitSize = { cols: 120, rows: 50 }
     resizeObserverCallback?.()
+    // Wait for debounce (100ms) to flush
+    await new Promise(r => setTimeout(r, 150))
 
     expect(mockEmit).toHaveBeenCalledWith('terminal:resize', {
       cols: 120,
@@ -175,6 +177,7 @@ describe('Mutation: fit()이 크기를 변경할 때 resize 전송 검증', () =
 
     nextFitSize = { cols: 120, rows: 55 }
     resizeObserverCallback?.()
+    await new Promise(r => setTimeout(r, 150))
 
     const resizeCalls = mockEmit.mock.calls.filter(
       (call: any[]) => call[0] === 'terminal:resize'
@@ -230,6 +233,68 @@ describe('Mutation: fit()이 크기를 변경할 때 resize 전송 검증', () =
     )
     expect(resizeCalls.length).toBeGreaterThan(0)
     expect(resizeCalls[0][1].rows).toBe(45)
+
+    handle.cleanup()
+  })
+
+  it('resize 디바운스: 연속 리사이즈 시 최종 크기만 전송된다', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+    const handle = createTerminalConnection('test', document.createElement('div'))
+
+    nextFitSize = { cols: 120, rows: 40 }
+    flushRaf()
+    getConnectHandler()![1]()
+    mockEmit.mockClear()
+
+    // 연속 리사이즈 시뮬레이션 (드래그)
+    nextFitSize = { cols: 100, rows: 40 }
+    resizeObserverCallback?.()
+    nextFitSize = { cols: 90, rows: 40 }
+    resizeObserverCallback?.()
+    nextFitSize = { cols: 80, rows: 35 }
+    resizeObserverCallback?.()
+
+    // 디바운스 전: resize 아직 미전송
+    const earlyResizes = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    expect(earlyResizes.length).toBe(0)
+
+    // 디바운스 후: 최종 크기만 전송
+    await new Promise(r => setTimeout(r, 150))
+    const resizeCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    expect(resizeCalls.length).toBe(1)
+    expect(resizeCalls[0][1]).toEqual({ cols: 80, rows: 35 })
+
+    handle.cleanup()
+  })
+
+  it('MUTATION: 디바운스를 제거하면 연속 리사이즈가 모두 전송된다', async () => {
+    // 디바운스가 없다면 3번의 resize가 모두 전송될 것 — 디바운스의 필요성 증명
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+    const handle = createTerminalConnection('test', document.createElement('div'))
+
+    nextFitSize = { cols: 120, rows: 40 }
+    flushRaf()
+    getConnectHandler()![1]()
+    mockEmit.mockClear()
+
+    // 연속 리사이즈
+    nextFitSize = { cols: 100, rows: 40 }
+    resizeObserverCallback?.()
+    nextFitSize = { cols: 90, rows: 40 }
+    resizeObserverCallback?.()
+    nextFitSize = { cols: 80, rows: 35 }
+    resizeObserverCallback?.()
+
+    await new Promise(r => setTimeout(r, 150))
+    const resizeCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    // 디바운스 덕분에 1번만 전송됨 (없으면 이 assert가 깨질 것)
+    expect(resizeCalls.length).toBe(1)
 
     handle.cleanup()
   })

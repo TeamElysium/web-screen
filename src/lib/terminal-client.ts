@@ -104,18 +104,29 @@ export function createTerminalConnection(
     }
   })
 
+  let resizeDebounce: ReturnType<typeof setTimeout> | null = null
+
   const handleResize = () => {
     fitAddon.fit()
     term.scrollToBottom()
     if (term.cols !== ptyCols || term.rows !== ptyRows) {
       ptyCols = term.cols
       ptyRows = term.rows
-      // Hide during TUI redraw, reveal when data settles
+      // Hide during TUI redraw
       redrawing = true
       container.style.opacity = '0'
       if (settleTimer) clearTimeout(settleTimer)
-      settleTimer = setTimeout(revealTerminal, 200)
-      socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+      // Debounce: only send final size after resizing settles
+      if (resizeDebounce) clearTimeout(resizeDebounce)
+      resizeDebounce = setTimeout(() => {
+        resizeDebounce = null
+        // Re-fit in case container changed during debounce
+        fitAddon.fit()
+        ptyCols = term.cols
+        ptyRows = term.rows
+        settleTimer = setTimeout(revealTerminal, 200)
+        socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
+      }, 100)
     }
   }
 
