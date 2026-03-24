@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { verifyPassword, createSessionToken } from '@/lib/auth'
 import { getWaitTime, recordFailure, recordSuccess } from '@/lib/rate-limit'
 
+function cookieFlags(): string {
+  const secure = process.env.SECURE_COOKIE === 'true' ? ' Secure;' : ''
+  return `Path=/; HttpOnly;${secure} SameSite=Strict; Max-Age=86400`
+}
+
 function getBaseUrl(request: Request): string {
   const host = request.headers.get('host')
   const proto = request.headers.get('x-forwarded-proto') || 'http'
@@ -47,7 +52,7 @@ export async function POST(request: Request) {
     const response = NextResponse.redirect(`${baseUrl}/`, 303)
     response.headers.set(
       'Set-Cookie',
-      `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
+      `session=${token}; ${cookieFlags()}`
     )
     return response
   }
@@ -55,7 +60,7 @@ export async function POST(request: Request) {
   const response = NextResponse.json({ ok: true })
   response.headers.set(
     'Set-Cookie',
-    `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
+    `session=${token}; ${cookieFlags()}`
   )
   return response
 }
