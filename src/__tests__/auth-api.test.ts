@@ -6,6 +6,13 @@ vi.mock('@/lib/auth', () => ({
   createSessionToken: () => 'mock-token',
 }))
 
+// Disable rate limiting in auth-api tests
+vi.mock('@/lib/rate-limit', () => ({
+  getWaitTime: () => 0,
+  recordFailure: () => {},
+  recordSuccess: () => {},
+}))
+
 describe('POST /api/auth (JSON)', () => {
   beforeEach(() => {
     vi.stubEnv('PASSWORD', 'correct-password')

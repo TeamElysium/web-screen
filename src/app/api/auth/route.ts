@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { verifyPassword, createSessionToken } from '@/lib/auth'
+import { getWaitTime, recordFailure, recordSuccess } from '@/lib/rate-limit'
 
 function getBaseUrl(request: Request): string {
   const host = request.headers.get('host')
@@ -11,6 +12,14 @@ function getBaseUrl(request: Request): string {
 }
 
 export async function POST(request: Request) {
+  const waitMs = getWaitTime()
+  if (waitMs > 0) {
+    return NextResponse.json(
+      { error: 'Too many attempts', retryAfterMs: waitMs },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(waitMs / 1000)) } }
+    )
+  }
+
   let password = ''
   const baseUrl = getBaseUrl(request)
 
@@ -24,12 +33,14 @@ export async function POST(request: Request) {
   }
 
   if (!verifyPassword(password)) {
+    recordFailure()
     if (contentType.includes('application/x-www-form-urlencoded')) {
       return NextResponse.redirect(`${baseUrl}/login?error=1`, 303)
     }
     return NextResponse.json({ error: 'Invalid password' }, { status: 401 })
   }
 
+  recordSuccess()
   const token = createSessionToken()
 
   if (contentType.includes('application/x-www-form-urlencoded')) {
