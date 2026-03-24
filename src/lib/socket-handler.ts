@@ -1,6 +1,8 @@
 import type { Server as SocketIOServer, Socket } from 'socket.io'
 import * as pty from 'node-pty'
+import { execFileSync } from 'child_process'
 import { validateSessionToken } from './auth'
+import { validateSessionName } from './screen-manager'
 
 export function setupSocketHandler(io: SocketIOServer): void {
   // Auth middleware — read session token from cookie or auth payload
@@ -22,6 +24,13 @@ export function setupSocketHandler(io: SocketIOServer): void {
     let ptyProcess: pty.IPty | null = null
 
     socket.on('terminal:attach', ({ session, cols, rows }: { session: string; cols?: number; rows?: number }) => {
+      try {
+        validateSessionName(session)
+      } catch {
+        socket.emit('terminal:exit')
+        return
+      }
+
       if (ptyProcess) {
         ptyProcess.kill()
         ptyProcess = null
@@ -31,8 +40,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
       // sessions created without -U track columns in byte mode,
       // causing character position drift in xterm.js
       try {
-        const { execSync } = require('child_process')
-        execSync(`screen -S ${session} -X utf8 on`, { timeout: 2000 })
+        execFileSync('screen', ['-S', session, '-X', 'utf8', 'on'], { timeout: 2000 })
       } catch {}
 
       const ptyCol = cols || 80
@@ -70,12 +78,18 @@ export function setupSocketHandler(io: SocketIOServer): void {
       })
     })
 
-    socket.on('terminal:input', (data: string) => {
-      ptyProcess?.write(data)
+    socket.on('terminal:input', (data: unknown) => {
+      if (typeof data === 'string' && data.length <= 4096) {
+        ptyProcess?.write(data)
+      }
     })
 
     socket.on('terminal:resize', ({ cols, rows }: { cols: number; rows: number }) => {
-      ptyProcess?.resize(cols, rows)
+      const c = Math.floor(cols)
+      const r = Math.floor(rows)
+      if (c >= 1 && c <= 500 && r >= 1 && r <= 500) {
+        ptyProcess?.resize(c, r)
+      }
     })
 
     socket.on('disconnect', () => {

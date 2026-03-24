@@ -1,7 +1,19 @@
-import { exec } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
+
+const SAFE_SESSION_NAME = /^[a-zA-Z0-9_-]+$/
+
+export function validateSessionName(name: string): void {
+  if (!name || !SAFE_SESSION_NAME.test(name)) {
+    throw new Error(`Invalid session name: only alphanumeric, hyphen, underscore allowed`)
+  }
+  if (name.length > 100) {
+    throw new Error('Session name too long')
+  }
+}
 
 export interface ScreenSession {
   id: string
@@ -41,10 +53,11 @@ export async function listSessions(): Promise<ScreenSession[]> {
 }
 
 export async function createSession(name: string): Promise<void> {
+  validateSessionName(name)
   if (await sessionExists(name)) {
     throw new Error(`Session "${name}" already exists`)
   }
-  await execAsync(`screen -dmUS ${name}`)
+  await execFileAsync('screen', ['-dmUS', name])
 }
 
 export async function sessionExists(name: string): Promise<boolean> {
@@ -53,10 +66,11 @@ export async function sessionExists(name: string): Promise<boolean> {
 }
 
 export async function killSession(name: string): Promise<void> {
+  validateSessionName(name)
   const sessions = await listSessions()
   const session = sessions.find(s => s.name === name)
   if (!session) {
     throw new Error(`Session "${name}" not found`)
   }
-  await execAsync(`screen -S ${session.id}.${session.name} -X quit`)
+  await execFileAsync('screen', ['-S', `${session.id}.${session.name}`, '-X', 'quit'])
 }
