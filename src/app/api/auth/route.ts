@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     const response = NextResponse.redirect(`${baseUrl}/`, 303)
     response.headers.set(
       'Set-Cookie',
-      `session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`
+      `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
     )
     return response
   }
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   const response = NextResponse.json({ ok: true })
   response.headers.set(
     'Set-Cookie',
-    `session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`
+    `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`
   )
   return response
 }
