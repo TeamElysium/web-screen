@@ -9,6 +9,8 @@ export interface TerminalHandle {
   getBufferText: () => string
   getFontSize: () => number
   setFontSize: (size: number) => void
+  /** Called before physical keyboard input is sent. Return modified data, or null to suppress. */
+  onBeforeInput: ((data: string) => string | null) | null
 }
 
 export function createTerminalConnection(
@@ -19,6 +21,7 @@ export function createTerminalConnection(
     cursorBlink: true,
     convertEol: true,
     allowProposedApi: true,
+    scrollback: 0,
   })
 
   const fitAddon = new FitAddon()
@@ -28,19 +31,19 @@ export function createTerminalConnection(
   term.unicode.activeVersion = '11'
   term.open(container)
 
-  // Constrain xterm's root element to fill the container exactly.
-  // Without this, xterm's DOM (including scrollback buffer) expands
-  // beyond the container, causing page-level overflow.
-  const xtermEl = container.querySelector('.xterm') as HTMLElement
-  if (xtermEl) {
-    xtermEl.style.height = '100%'
-    xtermEl.style.overflow = 'hidden'
-  }
+  // Hide terminal during initial data burst (TUI redraw flicker)
+  container.style.opacity = '0'
 
   let socket: ReturnType<typeof io> | null = null
   let ptyCols = term.cols
   let ptyRows = term.rows
   let firstOutput = true
+  let redrawing = true  // true during initial connect and resize
+  let settleTimer: ReturnType<typeof setTimeout> | null = null
+  const revealTerminal = () => {
+    container.style.opacity = '1'
+    redrawing = false
+  }
 
   // xterm needs at least one render frame after open() before fitAddon can
   // measure character cell dimensions. If we fit() + connect immediately,
@@ -62,6 +65,13 @@ export function createTerminalConnection(
 
     socket.on('terminal:output', (data: string) => {
       term.write(data)
+
+      // Only manage settle timer during redraw (connect/resize)
+      if (redrawing) {
+        if (settleTimer) clearTimeout(settleTimer)
+        settleTimer = setTimeout(revealTerminal, 200)
+      }
+
       if (firstOutput) {
         firstOutput = false
         requestAnimationFrame(() => {
@@ -82,8 +92,16 @@ export function createTerminalConnection(
     })
   })
 
+  const handle: TerminalHandle = {} as TerminalHandle
+
   term.onData((data: string) => {
-    socket?.emit('terminal:input', data)
+    if (handle.onBeforeInput) {
+      const modified = handle.onBeforeInput(data)
+      if (modified === null) return
+      socket?.emit('terminal:input', modified)
+    } else {
+      socket?.emit('terminal:input', data)
+    }
   })
 
   const handleResize = () => {
@@ -92,6 +110,11 @@ export function createTerminalConnection(
     if (term.cols !== ptyCols || term.rows !== ptyRows) {
       ptyCols = term.cols
       ptyRows = term.rows
+      // Hide during TUI redraw, reveal when data settles
+      redrawing = true
+      container.style.opacity = '0'
+      if (settleTimer) clearTimeout(settleTimer)
+      settleTimer = setTimeout(revealTerminal, 200)
       socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
     }
   }
@@ -99,7 +122,8 @@ export function createTerminalConnection(
   const resizeObserver = new ResizeObserver(handleResize)
   resizeObserver.observe(container)
 
-  return {
+  Object.assign(handle, {
+    onBeforeInput: null,
     cleanup: () => {
       resizeObserver.disconnect()
       socket?.disconnect()
@@ -127,5 +151,7 @@ export function createTerminalConnection(
       }
       return lines.join('\n')
     },
-  }
+  })
+
+  return handle
 }

@@ -67,6 +67,36 @@ export default function TerminalPage() {
     }
   }, [params.session])
 
+  const modifiersRef = useRef(modifiers)
+  modifiersRef.current = modifiers
+
+  // Apply virtual modifiers to physical keyboard input
+  useEffect(() => {
+    const h = handleRef.current
+    if (!h) return
+    h.onBeforeInput = (data: string) => {
+      const mods = modifiersRef.current
+      if (!mods.Ctrl && !mods.Alt && !mods.Shift) return data
+
+      let out = data
+      if (mods.Shift && data.length === 1) {
+        out = data.toUpperCase()
+      }
+      if (mods.Alt) {
+        out = '\x1b' + out
+      }
+      if (mods.Ctrl && data.length === 1) {
+        const upper = data.toUpperCase()
+        if (upper >= 'A' && upper <= 'Z') {
+          out = String.fromCharCode(upper.charCodeAt(0) - 64)
+        }
+      }
+      setModifiers({ Ctrl: false, Shift: false, Alt: false })
+      return out
+    }
+    return () => { h.onBeforeInput = null }
+  })
+
   const toggleModifier = useCallback((key: typeof MODIFIER_KEYS[number]) => {
     setModifiers(prev => ({ ...prev, [key]: !prev[key] }))
   }, [])
