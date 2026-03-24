@@ -59,10 +59,24 @@ export function setupSocketHandler(io: SocketIOServer): void {
       })
 
       let discarding = true
+      let outputBuf = ''
+      let flushTimer: ReturnType<typeof setTimeout> | null = null
+      const FLUSH_INTERVAL_MS = 8 // < 1 frame @60fps
+
+      const flushOutput = () => {
+        flushTimer = null
+        if (outputBuf) {
+          socket.emit('terminal:output', outputBuf)
+          outputBuf = ''
+        }
+      }
 
       ptyProcess.onData((data: string) => {
         if (!discarding) {
-          socket.emit('terminal:output', data)
+          outputBuf += data
+          if (!flushTimer) {
+            flushTimer = setTimeout(flushOutput, FLUSH_INTERVAL_MS)
+          }
         }
       })
 
@@ -73,6 +87,12 @@ export function setupSocketHandler(io: SocketIOServer): void {
       }, 50)
 
       ptyProcess.onExit(() => {
+        // Flush remaining buffered output before signaling exit
+        if (flushTimer) clearTimeout(flushTimer)
+        if (outputBuf) {
+          socket.emit('terminal:output', outputBuf)
+          outputBuf = ''
+        }
         socket.emit('terminal:exit')
         ptyProcess = null
       })
