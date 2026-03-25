@@ -298,4 +298,131 @@ describe('Mutation: fit()이 크기를 변경할 때 resize 전송 검증', () =
 
     handle.cleanup()
   })
+
+  it('축소→확대: 확대된 최종 크기가 전송된다', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+    const handle = createTerminalConnection('test', document.createElement('div'))
+
+    nextFitSize = { cols: 120, rows: 40 }
+    flushRaf()
+    getConnectHandler()![1]()
+    mockEmit.mockClear()
+
+    // 축소
+    nextFitSize = { cols: 80, rows: 40 }
+    resizeObserverCallback?.()
+    await new Promise(r => setTimeout(r, 150))
+    mockEmit.mockClear()
+
+    // 확대 (초기보다 큼)
+    nextFitSize = { cols: 150, rows: 40 }
+    resizeObserverCallback?.()
+    await new Promise(r => setTimeout(r, 150))
+
+    const resizeCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    expect(resizeCalls.length).toBe(1)
+    expect(resizeCalls[0][1]).toEqual({ cols: 150, rows: 40 })
+
+    handle.cleanup()
+  })
+
+  it('MUTATION: 축소→확대에서 확대 크기가 축소 크기로 잘못 전송되면 감지', async () => {
+    // 디바운스 콜백 내 fitAddon.fit() 재호출이 없다면
+    // 축소 시의 stale 크기가 전송될 수 있음 — 이 테스트가 그것을 감지
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+    const handle = createTerminalConnection('test', document.createElement('div'))
+
+    nextFitSize = { cols: 120, rows: 40 }
+    flushRaf()
+    getConnectHandler()![1]()
+    mockEmit.mockClear()
+
+    // 축소
+    nextFitSize = { cols: 80, rows: 40 }
+    resizeObserverCallback?.()
+    await new Promise(r => setTimeout(r, 150))
+    mockEmit.mockClear()
+
+    // 확대
+    nextFitSize = { cols: 150, rows: 40 }
+    resizeObserverCallback?.()
+    await new Promise(r => setTimeout(r, 150))
+
+    const resizeCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    // 전송된 크기가 축소 크기(80)가 아닌 확대 크기(150)인지 확인
+    expect(resizeCalls[0][1].cols).not.toBe(80)
+    expect(resizeCalls[0][1].cols).toBe(150)
+
+    handle.cleanup()
+  })
+
+  it('빠른 축소→확대 (디바운스 내): 확대 크기만 전송된다', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+    const handle = createTerminalConnection('test', document.createElement('div'))
+
+    nextFitSize = { cols: 120, rows: 40 }
+    flushRaf()
+    getConnectHandler()![1]()
+    mockEmit.mockClear()
+
+    // 디바운스 100ms 안에 축소→확대 연속 발생
+    nextFitSize = { cols: 80, rows: 40 }
+    resizeObserverCallback?.()
+    // 50ms 후 확대 (디바운스 안에)
+    nextFitSize = { cols: 150, rows: 40 }
+    resizeObserverCallback?.()
+
+    await new Promise(r => setTimeout(r, 150))
+
+    const resizeCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    // 축소 resize는 전송되지 않고, 확대 크기만 1회 전송
+    expect(resizeCalls.length).toBe(1)
+    expect(resizeCalls[0][1].cols).toBe(150)
+
+    handle.cleanup()
+  })
+
+  it('MUTATION: 빠른 축소→원복 시 서버 크기와 동일해도 resize가 전송되어야 한다', async () => {
+    // 엣지케이스: 120→80→120 빠르게 발생 시
+    // 서버 pty는 여전히 120이므로 SIGWINCH 미발생 가능
+    // 이 경우에도 resize 이벤트는 전송되어야 한다
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+    const handle = createTerminalConnection('test', document.createElement('div'))
+
+    nextFitSize = { cols: 120, rows: 40 }
+    flushRaf()
+    getConnectHandler()![1]()
+
+    // 서버에 첫 attach (120 cols)
+    const attachCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:attach'
+    )
+    expect(attachCalls[0][1].cols).toBe(120)
+    mockEmit.mockClear()
+
+    // 빠른 축소→원복 (디바운스 안에)
+    nextFitSize = { cols: 80, rows: 40 }
+    resizeObserverCallback?.()
+    nextFitSize = { cols: 120, rows: 40 }
+    resizeObserverCallback?.()
+
+    await new Promise(r => setTimeout(r, 150))
+
+    const resizeCalls = mockEmit.mock.calls.filter(
+      (call: any[]) => call[0] === 'terminal:resize'
+    )
+    // 서버 pty가 이미 120이어도, 클라이언트는 resize를 보내야 한다
+    // (서버가 중간에 80으로 변경되었을 수도 있으므로)
+    // 현재 구현: ptyCols가 80→120으로 변경되므로 resize 전송됨
+    expect(resizeCalls.length).toBe(1)
+    expect(resizeCalls[0][1].cols).toBe(120)
+
+    handle.cleanup()
+  })
 })
