@@ -106,8 +106,12 @@ export function setupSocketHandler(io: SocketIOServer): void {
     socket.on('terminal:resize', ({ cols, rows }: { cols: number; rows: number }) => {
       const c = Math.floor(cols)
       const r = Math.floor(rows)
-      if (c >= 1 && c <= 500 && r >= 1 && r <= 500) {
-        ptyProcess?.resize(c, r)
+      if (c >= 1 && c <= 500 && r >= 1 && r <= 500 && ptyProcess) {
+        // Resize to cols-1 first, then to real cols — guarantees a size
+        // change even if pty is already at the requested size, forcing
+        // SIGWINCH so screen always redraws for the correct dimensions.
+        ptyProcess.resize(Math.max(c - 1, 1), r)
+        ptyProcess.resize(c, r)
       }
     })
 
