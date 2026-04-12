@@ -43,3 +43,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# oracle tooling
+tools/oracle/.venv/
+
+# claude code local
+.claude/
