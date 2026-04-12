@@ -112,3 +112,23 @@ Once layer 2 is green on representative Claude Code TUI recordings, we can
 use `replayBytes` + `diffGrids` as a regression oracle for the web-screen
 pipeline: feed the same `raw.bin` through the production socket path, re-parse
 what the client would see, and assert grid equality against the baseline.
+
+## Production pipeline test (env-gated)
+
+`src/__tests__/oracle-pipeline.test.ts` runs the *full* web-screen server
+path against `/tmp/claude-scenario.raw`: it spawns a real `screen` session
+that `cat`s the recording, attaches to it via the production `socket-handler`
+code path (cols-1 + resize-to-real SIGWINCH trick, setImmediate output
+buffering), collects every `terminal:output` the client would receive, and
+replays those bytes through @xterm/headless. The resulting grid is compared
+to the @xterm/headless baseline from the raw bytes themselves.
+
+This test is **skipped by default** — it is currently KNOWN-FAILING and
+documents a real fidelity loss (~89% byte drop, row merging, spinner
+leakage) in the production pipeline. Run it locally to reproduce the
+current gap or to verify a fix:
+
+    ORACLE_RUN_PIPELINE=1 npx vitest run src/__tests__/oracle-pipeline.test.ts
+
+Requires `/tmp/claude-scenario.raw` to exist — produce it by running
+`tools/oracle/scenarios/claude-multiturn.ts` first.
