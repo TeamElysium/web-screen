@@ -6,8 +6,8 @@ import type { TerminalHandle } from '@/lib/terminal-client'
 
 const MODIFIER_KEYS = ['Ctrl', 'Shift', 'Alt'] as const
 const ACTION_KEYS = [
-  { label: 'Esc', code: '\x1b' },
   { label: 'Tab', code: '\t' },
+  { label: 'Esc', code: '\x1b' },
   { label: 'Enter', code: '\r' },
   { label: '↑', code: '\x1b[A' },
   { label: '↓', code: '\x1b[B' },
@@ -26,6 +26,23 @@ export default function TerminalPage() {
   const [bufferText, setBufferText] = useState('')
   const [fontSize, setFontSizeState] = useState(14)
   const rootRef = useRef<HTMLDivElement>(null)
+  const repeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const startRepeat = useCallback((fn: () => void) => {
+    fn()
+    const stop = () => {
+      if (repeatTimer.current) { clearTimeout(repeatTimer.current); repeatTimer.current = null }
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    // Initial delay before repeating
+    repeatTimer.current = setTimeout(function tick() {
+      fn()
+      repeatTimer.current = setTimeout(tick, 80)
+    }, 300)
+  }, [])
 
   useEffect(() => {
     const root = rootRef.current
@@ -183,66 +200,84 @@ export default function TerminalPage() {
         )}
       </div>
       <div
-        className="flex flex-wrap gap-1 bg-gray-900 px-2 py-1"
+        className="flex select-none items-stretch bg-gray-900"
         data-testid="virtual-keyboard"
       >
-        <button
-          data-testid="vk-Select"
-          onPointerDown={(e) => { e.preventDefault(); toggleSelectMode() }}
-          className={`rounded px-3 py-1 text-xs font-bold ${
-            selectMode
-              ? 'bg-green-600 text-white'
-              : 'bg-gray-700 text-gray-300'
-          }`}
-        >
-          Select
-        </button>
-        <button
-          data-testid="vk-font-down"
-          onPointerDown={(e) => { e.preventDefault(); changeFontSize(-2) }}
-          className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
-        >
-          A-
-        </button>
-        <span
-          data-testid="vk-font-size"
-          className="px-1 py-1 text-xs text-gray-400"
-        >
-          {fontSize}
-        </span>
-        <button
-          data-testid="vk-font-up"
-          onPointerDown={(e) => { e.preventDefault(); changeFontSize(2) }}
-          className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
-        >
-          A+
-        </button>
-        <span className="mx-1" />
-        {MODIFIER_KEYS.map((key) => (
+        <div className="flex flex-1 flex-wrap gap-1 px-2 py-1">
           <button
-            key={key}
-            data-testid={`vk-${key}`}
-            onPointerDown={(e) => { e.preventDefault(); toggleModifier(key) }}
+            data-testid="vk-Select"
+            onPointerDown={(e) => { e.preventDefault(); toggleSelectMode() }}
             className={`rounded px-3 py-1 text-xs font-bold ${
-              modifiers[key]
-                ? 'bg-blue-600 text-white'
+              selectMode
+                ? 'bg-green-600 text-white'
                 : 'bg-gray-700 text-gray-300'
             }`}
           >
-            {key}
+            Select
           </button>
-        ))}
-        <span className="mx-1" />
-        {ACTION_KEYS.map((key) => (
           <button
-            key={key.label}
-            data-testid={`vk-${key.label}`}
-            onPointerDown={(e) => { e.preventDefault(); sendKey(key.code) }}
+            data-testid="vk-font-down"
+            onPointerDown={(e) => { e.preventDefault(); changeFontSize(-2) }}
             className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
           >
-            {key.label}
+            A-
           </button>
-        ))}
+          <span
+            data-testid="vk-font-size"
+            className="px-1 py-1 text-xs text-gray-400"
+          >
+            {fontSize}
+          </span>
+          <button
+            data-testid="vk-font-up"
+            onPointerDown={(e) => { e.preventDefault(); changeFontSize(2) }}
+            className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
+          >
+            A+
+          </button>
+          <span className="mx-1" />
+          {MODIFIER_KEYS.map((key) => (
+            <button
+              key={key}
+              data-testid={`vk-${key}`}
+              onPointerDown={(e) => { e.preventDefault(); toggleModifier(key) }}
+              className={`rounded px-3 py-1 text-xs font-bold ${
+                modifiers[key]
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              {key}
+            </button>
+          ))}
+          <span className="mx-1" />
+          {ACTION_KEYS.map((key) => (
+            <button
+              key={key.label}
+              data-testid={`vk-${key.label}`}
+              onPointerDown={(e) => { e.preventDefault(); sendKey(key.code) }}
+              className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 active:bg-gray-600"
+            >
+              {key.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-col border-l border-gray-800">
+          <button
+            data-testid="vk-scroll-up"
+            onPointerDown={(e) => { e.preventDefault(); startRepeat(() => handleRef.current?.scrollUp()) }}
+            className="flex flex-1 items-center justify-center px-2 text-xs text-gray-400 active:bg-gray-700"
+          >
+            ▲
+          </button>
+          <button
+            data-testid="vk-scroll-down"
+            onPointerDown={(e) => { e.preventDefault(); startRepeat(() => handleRef.current?.scrollDown()) }}
+            className="flex flex-1 items-center justify-center border-t border-gray-800 px-2 text-xs text-gray-400 active:bg-gray-700"
+          >
+            ▼
+          </button>
+        </div>
       </div>
     </div>
   )

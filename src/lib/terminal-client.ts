@@ -9,6 +9,8 @@ export interface TerminalHandle {
   getBufferText: () => string
   getFontSize: () => number
   setFontSize: (size: number) => void
+  scrollUp: () => void
+  scrollDown: () => void
   /** Called before physical keyboard input is sent. Return modified data, or null to suppress. */
   onBeforeInput: ((data: string) => string | null) | null
 }
@@ -21,7 +23,7 @@ export function createTerminalConnection(
     cursorBlink: true,
     convertEol: false,
     allowProposedApi: true,
-    scrollback: 0,
+    scrollback: 1000,
   })
 
   const fitAddon = new FitAddon()
@@ -149,6 +151,8 @@ export function createTerminalConnection(
       fitAddon.fit()
       socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
     },
+    scrollUp: () => { term.scrollLines(-5) },
+    scrollDown: () => { term.scrollLines(5) },
     getBufferText: () => {
       const buf = term.buffer.active
       const lines: string[] = []
