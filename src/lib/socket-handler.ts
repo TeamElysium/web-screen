@@ -22,6 +22,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
 
   io.on('connection', (socket: Socket) => {
     let ptyProcess: pty.IPty | null = null
+    let currentSession: string | null = null
 
     socket.on('terminal:attach', ({ session, cols, rows }: { session: string; cols?: number; rows?: number }) => {
       try {
@@ -46,6 +47,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
       const ptyCol = cols || 80
       const ptyRow = rows || 30
 
+      currentSession = session
       console.log(`[server] terminal:attach session=${session} cols=${ptyCol} rows=${ptyRow}`)
 
       // Spawn PTY 1 col smaller — screen dumps old buffer at this size.
@@ -107,11 +109,15 @@ export function setupSocketHandler(io: SocketIOServer): void {
       const c = Math.floor(cols)
       const r = Math.floor(rows)
       if (c >= 1 && c <= 500 && r >= 1 && r <= 500 && ptyProcess) {
-        // Resize to cols-1 first, then to real cols — guarantees a size
-        // change even if pty is already at the requested size, forcing
-        // SIGWINCH so screen always redraws for the correct dimensions.
-        ptyProcess.resize(Math.max(c - 1, 1), r)
         ptyProcess.resize(c, r)
+        // Force screen to redisplay after resize — ensures screen
+        // redraws even if pty was already at this size, and avoids
+        // the double-SIGWINCH issue from the cols-1 trick.
+        if (currentSession) {
+          try {
+            execFileSync('screen', ['-S', currentSession, '-X', 'redisplay'], { timeout: 2000 })
+          } catch {}
+        }
       }
     })
 

@@ -1,19 +1,19 @@
 /**
- * 뮤테이션 테스트: resize 시 cols-1 트릭이 SIGWINCH를 강제 발생시키는지 검증.
+ * 뮤테이션 테스트: resize 후 screen -X redisplay로 강제 리드로우하는지 검증.
  *
- * node-pty를 mock하여 ptyProcess.resize() 호출 패턴을 직접 확인.
- * cols-1 트릭이 없으면 같은 크기 resize 시 SIGWINCH가 발생하지 않아
- * screen이 리드로우하지 않는 버그가 발생.
+ * node-pty와 child_process를 mock하여 resize + redisplay 호출 패턴을 확인.
+ * redisplay가 없으면 같은 크기 resize 시 screen이 리드로우하지 않는 버그 발생.
  *
  * @vitest-environment node
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockResize = vi.fn()
 const mockKill = vi.fn()
 const mockWrite = vi.fn()
 const mockOnData = vi.fn()
 const mockOnExit = vi.fn()
+const mockExecFileSync = vi.fn()
 
 vi.mock('node-pty', () => ({
   spawn: vi.fn(() => ({
@@ -35,7 +35,7 @@ vi.mock('../lib/screen-manager', () => ({
 }))
 
 vi.mock('child_process', () => ({
-  execFileSync: vi.fn(),
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }))
 
 import { createServer } from 'http'
@@ -50,11 +50,9 @@ let port: number
 
 beforeEach(async () => {
   vi.clearAllMocks()
-
   httpServer = createServer()
   ioServer = new SocketIOServer(httpServer)
   setupSocketHandler(ioServer)
-
   await new Promise<void>((resolve) => {
     httpServer.listen(0, () => {
       port = (httpServer.address() as AddressInfo).port
@@ -63,7 +61,6 @@ beforeEach(async () => {
   })
 })
 
-import { afterEach } from 'vitest'
 afterEach(async () => {
   await new Promise<void>((resolve) => {
     ioServer.close(() => httpServer.close(() => resolve()))
@@ -77,83 +74,92 @@ function connectClient(): ClientSocket {
   })
 }
 
-describe('resize cols-1 trick (SIGWINCH 강제 발생)', () => {
-  it('resize 시 pty.resize가 2번 호출된다 (cols-1, cols)', async () => {
+describe('resize + screen redisplay (강제 리드로우)', () => {
+  it('resize 시 pty.resize 1회 + screen -X redisplay 호출', async () => {
     const client = connectClient()
     await new Promise<void>(r => client.on('connect', r))
 
-    client.emit('terminal:attach', { session: 'test', cols: 80, rows: 24 })
+    client.emit('terminal:attach', { session: 'mysession', cols: 80, rows: 24 })
     await new Promise(r => setTimeout(r, 100))
     mockResize.mockClear()
+    mockExecFileSync.mockClear()
 
     client.emit('terminal:resize', { cols: 120, rows: 40 })
     await new Promise(r => setTimeout(r, 50))
 
-    expect(mockResize).toHaveBeenCalledTimes(2)
-    expect(mockResize).toHaveBeenNthCalledWith(1, 119, 40)  // cols-1
-    expect(mockResize).toHaveBeenNthCalledWith(2, 120, 40)  // real cols
+    // resize 1회
+    expect(mockResize).toHaveBeenCalledTimes(1)
+    expect(mockResize).toHaveBeenCalledWith(120, 40)
+
+    // screen -X redisplay 호출
+    const redisplayCalls = mockExecFileSync.mock.calls.filter(
+      (call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes('redisplay')
+    )
+    expect(redisplayCalls.length, 'redisplay should be called once').toBe(1)
+    expect(redisplayCalls[0][1]).toContain('mysession')
 
     client.close()
   })
 
-  it('같은 크기 resize에도 pty.resize가 2번 호출된다', async () => {
+  it('같은 크기 resize에도 redisplay가 호출된다', async () => {
     const client = connectClient()
     await new Promise<void>(r => client.on('connect', r))
 
-    client.emit('terminal:attach', { session: 'test', cols: 80, rows: 24 })
+    client.emit('terminal:attach', { session: 'mysession', cols: 80, rows: 24 })
     await new Promise(r => setTimeout(r, 100))
     mockResize.mockClear()
+    mockExecFileSync.mockClear()
 
-    // 80x24로 다시 resize (같은 크기)
+    // 같은 크기로 resize
     client.emit('terminal:resize', { cols: 80, rows: 24 })
     await new Promise(r => setTimeout(r, 50))
 
-    // cols-1 트릭으로 79→80 크기 변경이 보장됨
-    expect(mockResize).toHaveBeenCalledTimes(2)
-    expect(mockResize).toHaveBeenNthCalledWith(1, 79, 24)
-    expect(mockResize).toHaveBeenNthCalledWith(2, 80, 24)
+    expect(mockResize).toHaveBeenCalledWith(80, 24)
+
+    const redisplayCalls = mockExecFileSync.mock.calls.filter(
+      (call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes('redisplay')
+    )
+    expect(redisplayCalls.length, 'redisplay even on same-size resize').toBe(1)
 
     client.close()
   })
 
-  it('MUTATION: cols-1 호출이 없으면 같은 크기에서 SIGWINCH 미발생 (테스트 실패해야 함)', async () => {
-    // 이 테스트는 cols-1 트릭을 제거하면 실패:
-    // pty.resize(80, 24)만 호출되어 CalledTimes가 1이 됨
+  it('MUTATION: redisplay 제거 시 감지 (screen이 리드로우하지 않음)', async () => {
     const client = connectClient()
     await new Promise<void>(r => client.on('connect', r))
 
-    client.emit('terminal:attach', { session: 'test', cols: 80, rows: 24 })
+    client.emit('terminal:attach', { session: 'mysession', cols: 80, rows: 24 })
     await new Promise(r => setTimeout(r, 100))
-    mockResize.mockClear()
+    mockExecFileSync.mockClear()
 
-    client.emit('terminal:resize', { cols: 80, rows: 24 })
+    client.emit('terminal:resize', { cols: 100, rows: 30 })
     await new Promise(r => setTimeout(r, 50))
 
-    // 2번 호출 = cols-1 트릭이 동작 중
-    // 1번 호출 = cols-1 트릭이 제거됨 (MUTATION detected!)
-    const callCount = mockResize.mock.calls.length
-    expect(callCount, 'cols-1 trick must call resize twice').toBe(2)
-
-    // 첫 번째 호출이 cols-1인지 확인
-    const firstCall = mockResize.mock.calls[0]
-    expect(firstCall[0], 'first resize must be cols-1').toBe(79)
+    // redisplay가 호출되어야 함 — 제거하면 이 테스트가 실패
+    const redisplayCalls = mockExecFileSync.mock.calls.filter(
+      (call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes('redisplay')
+    )
+    expect(redisplayCalls.length, 'redisplay must be called on resize').toBeGreaterThan(0)
 
     client.close()
   })
 
-  it('cols=1일 때 cols-1은 최소 1을 유지한다', async () => {
+  it('redisplay에 올바른 세션 이름이 전달된다', async () => {
     const client = connectClient()
     await new Promise<void>(r => client.on('connect', r))
 
-    client.emit('terminal:attach', { session: 'test', cols: 80, rows: 24 })
+    client.emit('terminal:attach', { session: 'my-custom-session', cols: 80, rows: 24 })
     await new Promise(r => setTimeout(r, 100))
-    mockResize.mockClear()
+    mockExecFileSync.mockClear()
 
-    client.emit('terminal:resize', { cols: 1, rows: 24 })
+    client.emit('terminal:resize', { cols: 100, rows: 30 })
     await new Promise(r => setTimeout(r, 50))
 
-    expect(mockResize).toHaveBeenNthCalledWith(1, 1, 24)  // max(1-1, 1) = 1
-    expect(mockResize).toHaveBeenNthCalledWith(2, 1, 24)
+    const redisplayCall = mockExecFileSync.mock.calls.find(
+      (call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes('redisplay')
+    )
+    expect(redisplayCall).toBeTruthy()
+    expect(redisplayCall![1]).toEqual(['-S', 'my-custom-session', '-X', 'redisplay'])
 
     client.close()
   })
