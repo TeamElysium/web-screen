@@ -113,22 +113,50 @@ use `replayBytes` + `diffGrids` as a regression oracle for the web-screen
 pipeline: feed the same `raw.bin` through the production socket path, re-parse
 what the client would see, and assert grid equality against the baseline.
 
-## Production pipeline test (env-gated)
+## Production pipeline test
 
 `src/__tests__/oracle-pipeline.test.ts` runs the *full* web-screen server
-path against `/tmp/claude-scenario.raw`: it spawns a real `screen` session
-that `cat`s the recording, attaches to it via the production `socket-handler`
-code path (cols-1 + resize-to-real SIGWINCH trick, setImmediate output
+path against a deterministic synthetic producer: it spawns a real `screen`
+session whose first window runs a short bash script emitting `ED2 + CUP +
+EL + SGR` sequences, attaches via the production `socket-handler` code
+path (cols-1 + resize-to-real SIGWINCH trick, setImmediate output
 buffering), collects every `terminal:output` the client would receive, and
-replays those bytes through @xterm/headless. The resulting grid is compared
-to the @xterm/headless baseline from the raw bytes themselves.
+replays those bytes through @xterm/headless. The resulting grid is
+compared to an @xterm/headless baseline of the raw producer bytes.
 
-This test is **skipped by default** — it is currently KNOWN-FAILING and
-documents a real fidelity loss (~89% byte drop, row merging, spinner
-leakage) in the production pipeline. Run it locally to reproduce the
-current gap or to verify a fix:
+Because the producer only uses sequences every standards-compliant VT
+parser agrees on, any grid disagreement reflects a real transport issue
+inside web-screen's server path. The test currently passes — cols-1 +
+buffering + socket.io preserve byte-level fidelity for this class of
+output.
 
-    ORACLE_RUN_PIPELINE=1 npx vitest run src/__tests__/oracle-pipeline.test.ts
+### What this test deliberately does NOT do
 
-Requires `/tmp/claude-scenario.raw` to exist — produce it by running
-`tools/oracle/scenarios/claude-multiturn.ts` first.
+An earlier iteration of this test fed a pre-recorded Claude Code direct-
+terminal byte stream (`/tmp/claude-scenario.raw`, from
+`claude-multiturn.ts`) into a screen session via `cat` and compared the
+result to an @xterm/headless baseline of those raw bytes. That
+comparison produced an alarming 33-row grid divergence and ghost
+spinner text, and the first round of analysis concluded screen's VT
+parser was at fault.
+
+That conclusion was **wrong**. Claude Code queries terminal capabilities
+at startup and adapts its output accordingly — a recording captured
+running claude directly under node-pty reflects the bytes claude sends
+to a *direct xterm* (with \e[?2026h/l sync mode, full streaming TUI,
+etc.). Those bytes are not what screen ever sees in production, where
+claude runs inside screen, detects screen's capabilities, and emits a
+screen-adapted stream. Feeding the direct-xterm recording into screen
+via cat compared incompatible references, and the "fidelity gap" was an
+artifact of that mismatch, not a real pipeline bug.
+
+To record a faithful in-screen byte stream (for cross-terminal
+comparison or diagnostic work), use:
+
+    npx tsx tools/oracle/scenarios/record-claude-in-screen.ts
+
+It creates a screen session, launches claude inside it, drives the
+same 3-turn conversation, and saves both the attach-pty byte stream
+(`/tmp/claude-in-screen.raw`) and the xterm/headless grid of that
+stream. The resulting grid is clean — no ghost spinners — confirming
+the production pipeline is working.

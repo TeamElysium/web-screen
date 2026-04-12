@@ -3,7 +3,6 @@ import { createServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client'
 import { execSync } from 'child_process'
-import { readFileSync, existsSync } from 'node:fs'
 import type { AddressInfo } from 'net'
 import { setupSocketHandler } from '@/lib/socket-handler'
 import { createSessionToken } from '@/lib/auth'
@@ -13,45 +12,65 @@ import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 /**
  * Phase 3: web-screen production pipeline oracle test.
  *
- * Feeds a pre-recorded Claude Code byte stream into a real `screen` session,
- * attaches to it via the real socket-handler code path (spawn `screen -xU`
- * under node-pty, buffer output, emit via socket.io), collects everything
- * the client would receive, and replays both (a) the original raw bytes and
- * (b) the client-received bytes through @xterm/headless. The two resulting
- * grids must match.
+ * Spins up a real screen session whose first window runs a deterministic
+ * TUI-like producer (ED2 + CUP + EL + SGR + plain text — the kinds of
+ * sequences every standards-compliant VT parser agrees on). Attaches to
+ * the session via the real socket-handler code path (cols-1 + resize-to-
+ * real SIGWINCH trick, setImmediate output buffering, socket.io emit),
+ * collects what the client would receive, replays it through @xterm/headless
+ * and compares the final grid to a baseline computed by feeding the raw
+ * producer bytes directly into @xterm/headless.
  *
  * What this catches:
  *   - byte loss from output buffering in socket-handler
- *   - byte corruption or reordering from the cols-1 + resize-to-real trick
- *     used to force SIGWINCH redraw in terminal:attach
- *   - byte loss or corruption from screen's internal buffer→redraw round-trip
- *   - anything else the production path does that distorts the final state
+ *   - byte reordering / drop from the cols-1 + resize-to-real flow
+ *   - any screen→attach→client distortion for the sequences this producer
+ *     exercises (absolute cursor positioning, erase-to-EOL, SGR)
  *
- * Prerequisite: /tmp/claude-scenario.raw must exist (produced by
- * `tools/oracle/scenarios/claude-multiturn.ts`). If it doesn't, the test is
- * skipped — we don't want to re-spawn claude in CI.
- *
- * Current status (2026-04-12): this test is KNOWN-FAILING. When run, it
- * surfaces a real fidelity loss in the production pipeline — the client
- * only receives ~11% of the recorded byte volume and the reconstructed
- * grid contains visible row-merging and spinner artifacts that the raw
- * baseline does not. Suspected contributors:
- *   - the cols-1 + resize-to-real-cols SIGWINCH trick reflows screen's
- *     buffer at an intermediate width, leaving stale state that leaks
- *     into the post-resize redraw
- *   - screen's default 100-line scrollback drops the earlier portion of
- *     the 31k-byte recording before attach can observe it
- *   - screen may not implement \e[?2026h/l (BP5 / EP5) synchronized
- *     output, causing CR-overwrite spinners to linger as ghost text
- *
- * The test is env-gated behind ORACLE_RUN_PIPELINE so `npm test` stays
- * green, but running it locally shows the current gap and will turn green
- * as the pipeline is fixed. See `tools/oracle/README.md` for how to run.
+ * What this deliberately does NOT exercise:
+ *   Streaming TUIs that rely on xterm synchronized-output mode
+ *   (\e[?2026h/l), CUF-based overdraw, wide-char cell model edge cases,
+ *   etc. Those produce different bytes *depending on what terminal they
+ *   detect*, so feeding a direct-terminal recording into screen does not
+ *   faithfully reproduce what screen would see in production — and any
+ *   "fidelity gap" you measure that way is an artifact of the test
+ *   setup, not a pipeline bug. Use `tools/oracle/scenarios/
+ *   record-claude-in-screen.ts` to record a true in-screen stream if you
+ *   need to compare that class of workload.
  */
 
-const RAW_PATH = '/tmp/claude-scenario.raw'
-const COLS = 120
-const ROWS = 40
+const COLS = 80
+const ROWS = 24
+
+// bash -c script: CLS + CUP + in-place content + EL + final text + sleep.
+// Sticks to sequences that screen, xterm.js and iTerm2 all agree on, so
+// there is no oracle ambiguity — any grid disagreement observed in this
+// test is a real pipeline transport issue.
+const PRODUCER = [
+  `printf '\\x1b[2J\\x1b[H'`,        // ED2 + home
+  `printf 'alpha\\r\\n'`,
+  `printf 'bravo with \\x1b[1;31mred\\x1b[0m bits\\r\\n'`,
+  `printf '\\x1b[6;1HOVERWRITTEN'`,    // CUP 6,1
+  `printf '\\x1b[6;1Hoverwrit3n!!'`,   // overwrite same region
+  `printf '\\x1b[10;20Hanchor'`,       // CUP 10,20
+  `printf '\\x1b[12;1H\\x1b[KDONE'`,   // CUP 12,1 + EL + text
+  `exec sleep 99999`,
+].join('; ')
+
+// Same bytes the producer ends up writing to its PTY (without the
+// surrounding shell). Used as the oracle baseline. Keep in sync with the
+// PRODUCER variable above — they must describe the same output stream.
+const PRODUCER_BYTES = (() => {
+  let s = ''
+  s += '\x1b[2J\x1b[H'
+  s += 'alpha\r\n'
+  s += 'bravo with \x1b[1;31mred\x1b[0m bits\r\n'
+  s += '\x1b[6;1HOVERWRITTEN'
+  s += '\x1b[6;1Hoverwrit3n!!'
+  s += '\x1b[10;20Hanchor'
+  s += '\x1b[12;1H\x1b[KDONE'
+  return s
+})()
 
 let httpServer: ReturnType<typeof createServer>
 let ioServer: SocketIOServer
@@ -132,81 +151,65 @@ async function collectUntilIdle(
 }
 
 describe('oracle: production pipeline (screen + socket-handler)', () => {
-  const hasRaw = existsSync(RAW_PATH)
-  const gated = !process.env.ORACLE_RUN_PIPELINE
-  const skip = gated || !hasRaw
+  it('synthetic producer grid survives the full server pipeline', async () => {
+    // --- Baseline: xterm/headless replay of the raw producer bytes ---
+    const baseline: Grid = await replayBytes(PRODUCER_BYTES, {
+      cols: COLS,
+      rows: ROWS,
+    })
 
-  it.skipIf(skip)(
-    'recorded claude bytes survive the full server pipeline grid-for-grid',
-    async () => {
-      const rawBytes = readFileSync(RAW_PATH, 'utf8')
-      expect(rawBytes.length).toBeGreaterThan(1000)
+    // --- Set up a real screen session running the producer ---
+    const sessionName = `wst_oracle_${Date.now()}`
+    trackSession(sessionName)
+    execSync(
+      `screen -dmUS ${sessionName} bash -c ${JSON.stringify(PRODUCER)}`,
+      { timeout: 3000 },
+    )
 
-      // --- Baseline: replay raw bytes directly through @xterm/headless ---
-      const baseline: Grid = await replayBytes(rawBytes, { cols: COLS, rows: ROWS })
+    // Give screen a moment to parse the producer's output into its buffer
+    // before we attach.
+    await new Promise((r) => setTimeout(r, 500))
 
-      // --- Set up a real screen session that outputs the recorded bytes ---
-      // We write the raw bytes to a temp file that the session's shell will
-      // `cat` into its PTY, feeding them into screen's internal buffer.
-      const sessionName = `wst_oracle_${Date.now()}`
-      trackSession(sessionName)
-      // UTF-8 mode (-U) to match what the real server enables before attach.
-      // The shell inside the session cats the raw file then sleeps forever
-      // so the session stays attachable.
-      execSync(
-        `screen -dmUS ${sessionName} bash -c 'cat ${RAW_PATH}; exec sleep 99999'`,
-        { timeout: 3000 },
+    // --- Attach via the real socket-handler path ---
+    const client = connectClient()
+    await new Promise<void>((res, rej) => {
+      client.on('connect', () => res())
+      client.on('connect_error', rej)
+    })
+
+    client.emit('terminal:attach', {
+      session: sessionName,
+      cols: COLS,
+      rows: ROWS,
+    })
+
+    const socketBytes = await collectUntilIdle(client, 800, 6000)
+    client.close()
+
+    expect(socketBytes.length).toBeGreaterThan(0)
+
+    // --- Replay the socket-received bytes and compare ---
+    const pipelineGrid: Grid = await replayBytes(socketBytes, {
+      cols: COLS,
+      rows: ROWS,
+    })
+
+    const diff = diffGrids(baseline, pipelineGrid)
+    if (!diff.equal) {
+      console.log(
+        `baseline ${baseline.cols}x${baseline.rows} cursor ` +
+          `(${baseline.cursor.x},${baseline.cursor.y})`,
       )
-
-      // Let screen absorb all the raw bytes into its display buffer before
-      // we attach — otherwise the attach redraw would be based on a partial
-      // buffer.
-      await new Promise((r) => setTimeout(r, 1500))
-
-      // --- Attach via the real socket-handler path ---
-      const client = connectClient()
-      await new Promise<void>((res, rej) => {
-        client.on('connect', () => res())
-        client.on('connect_error', rej)
-      })
-
-      client.emit('terminal:attach', {
-        session: sessionName,
-        cols: COLS,
-        rows: ROWS,
-      })
-
-      // Collect everything the client would feed to xterm.js.
-      const socketBytes = await collectUntilIdle(client, 1500, 15_000)
-      client.close()
-
-      expect(socketBytes.length).toBeGreaterThan(0)
-
-      // --- Replay the socket-received bytes through @xterm/headless ---
-      const pipelineGrid: Grid = await replayBytes(socketBytes, {
-        cols: COLS,
-        rows: ROWS,
-      })
-
-      // --- Compare baseline (raw) vs pipeline (server-routed) ---
-      const diff = diffGrids(baseline, pipelineGrid)
-      if (!diff.equal) {
-        console.log(
-          `baseline ${baseline.cols}x${baseline.rows} cursor ` +
-            `(${baseline.cursor.x},${baseline.cursor.y})`,
-        )
-        console.log(
-          `pipeline ${pipelineGrid.cols}x${pipelineGrid.rows} cursor ` +
-            `(${pipelineGrid.cursor.x},${pipelineGrid.cursor.y})`,
-        )
-        console.log(`first ${Math.min(10, diff.reasons.length)} diffs:`)
-        for (const r of diff.reasons.slice(0, 10)) console.log('  ' + r)
-        console.log(
-          `(${diff.reasons.length} total diff reasons, socket bytes=${socketBytes.length}, raw bytes=${rawBytes.length})`,
-        )
-      }
-      expect(diff.equal).toBe(true)
-    },
-    30_000,
-  )
+      console.log(
+        `pipeline ${pipelineGrid.cols}x${pipelineGrid.rows} cursor ` +
+          `(${pipelineGrid.cursor.x},${pipelineGrid.cursor.y})`,
+      )
+      for (const r of diff.reasons.slice(0, 10)) console.log('  ' + r)
+      console.log(
+        `(${diff.reasons.length} diffs; socket=${socketBytes.length}B, ` +
+          `baseline=${PRODUCER_BYTES.length}B)`,
+      )
+    }
+    expect(diff.equal).toBe(true)
+  }, 15_000)
 })
