@@ -19,7 +19,7 @@ export function createTerminalConnection(
 ): TerminalHandle {
   const term = new Terminal({
     cursorBlink: true,
-    convertEol: true,
+    convertEol: false,
     allowProposedApi: true,
     scrollback: 0,
   })
