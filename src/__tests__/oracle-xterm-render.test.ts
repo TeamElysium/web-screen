@@ -101,7 +101,7 @@ function makeBrowserTerminal(cols: number, rows: number): Terminal {
   const term = new Terminal({
     cols,
     rows,
-    convertEol: true,
+    convertEol: false,
     allowProposedApi: true,
     scrollback: 0,
   })
@@ -264,26 +264,32 @@ describe('oracle: xterm.js browser-equivalent rendering', () => {
     expect(diffGrids(baseline, replay).equal).toBe(true)
   })
 
-  it('convertEol: bare LF handled like browser terminal', async () => {
+  it('bare LF preserves column (convertEol disabled)', async () => {
+    // With convertEol: false, bare \n moves cursor down without resetting column.
+    // This matches iTerm2 behavior and is required for screen's streaming output.
     const lfBytes = '\x1b[2J\x1b[Hline1\nline2\nline3'
 
     const browserGrid = await replayAsBrowser(lfBytes, COLS, ROWS)
 
+    // bare \n should NOT reset to column 0 — line2 starts at column 5
     expect(browserGrid.lines[0].trimEnd()).toBe('line1')
-    expect(browserGrid.lines[1].trimEnd()).toBe('line2')
-    expect(browserGrid.lines[2].trimEnd()).toBe('line3')
+    // line2 is at row 1 but starting at col 5 (where cursor was after "line1")
+    expect(browserGrid.lines[1].charAt(5)).toBe('l')
+    expect(browserGrid.lines[1].substring(5, 10)).toBe('line2')
 
-    const rawTerm = new Terminal({
+    // Verify: with convertEol: true, behavior would differ (column resets to 0)
+    const eolTerm = new Terminal({
       cols: COLS,
       rows: ROWS,
-      convertEol: false,
+      convertEol: true,
       allowProposedApi: true,
     })
-    await new Promise<void>((resolve) => rawTerm.write(lfBytes, () => resolve()))
-    const rawGrid = snapshotGrid(rawTerm)
-    rawTerm.dispose()
+    await new Promise<void>((resolve) => eolTerm.write(lfBytes, () => resolve()))
+    const eolGrid = snapshotGrid(eolTerm)
+    eolTerm.dispose()
 
-    const diff = diffGrids(browserGrid, rawGrid)
+    // convertEol: true would put line2 at col 0 — different from browser
+    const diff = diffGrids(browserGrid, eolGrid)
     expect(diff.equal).toBe(false)
   })
 })
