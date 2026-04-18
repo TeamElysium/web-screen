@@ -27,6 +27,25 @@ export default function TerminalPage() {
   const [fontSize, setFontSizeState] = useState(14)
   const rootRef = useRef<HTMLDivElement>(null)
   const repeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks whether the OS keyboard is currently covering part of the screen.
+  // Derived from visualViewport.resize — see the sync effect below.
+  const isKeyboardVisibleRef = useRef(false)
+
+  // Mobile: xterm's hidden helper-textarea stays focused after the user
+  // dismisses the OS keyboard. Any subsequent tap on a focused text input
+  // re-shows the keyboard. Scroll buttons are a scroll gesture, not typing,
+  // so when the OS keyboard is already DOWN we pre-emptively blur the focused
+  // text input to stop the OS from re-showing it. If the keyboard is currently
+  // UP the user is actively typing — leave focus alone and just scroll.
+  const dismissKeyboardIfHidden = useCallback(() => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement)) return
+    // Only relevant on touch devices; desktops have no OS keyboard and
+    // blurring would needlessly drop terminal focus.
+    if (typeof navigator !== 'undefined' && navigator.maxTouchPoints === 0) return
+    if (isKeyboardVisibleRef.current) return
+    active.blur()
+  }, [])
 
   const startRepeat = useCallback((fn: () => void) => {
     fn()
@@ -48,14 +67,23 @@ export default function TerminalPage() {
     const root = rootRef.current
     if (!root) return
 
-    const syncHeight = () => {
-      const h = window.visualViewport?.height ?? window.innerHeight
+    const vv = window.visualViewport
+    // Baseline = the largest visual-viewport height we have ever observed,
+    // i.e. the height when no OS keyboard is present. Platform-agnostic:
+    // works on iOS (innerHeight constant) and Android (innerHeight shrinks
+    // in sync with visualViewport) alike.
+    let baselineHeight = vv?.height ?? window.innerHeight
+
+    const sync = () => {
+      const h = vv?.height ?? window.innerHeight
+      if (h > baselineHeight) baselineHeight = h
+      isKeyboardVisibleRef.current = baselineHeight - h > 150
       root.style.height = `${h}px`
     }
-    syncHeight()
+    sync()
 
-    window.visualViewport?.addEventListener('resize', syncHeight)
-    return () => window.visualViewport?.removeEventListener('resize', syncHeight)
+    vv?.addEventListener('resize', sync)
+    return () => vv?.removeEventListener('resize', sync)
   }, [])
 
   useEffect(() => {
@@ -265,14 +293,14 @@ export default function TerminalPage() {
         <div className="flex flex-col border-l border-gray-800">
           <button
             data-testid="vk-scroll-up"
-            onPointerDown={(e) => { e.preventDefault(); startRepeat(() => handleRef.current?.scrollUp()) }}
+            onPointerDown={(e) => { e.preventDefault(); dismissKeyboardIfHidden(); startRepeat(() => handleRef.current?.scrollUp()) }}
             className="flex flex-1 items-center justify-center px-2 text-xs text-gray-400 active:bg-gray-700"
           >
             ▲
           </button>
           <button
             data-testid="vk-scroll-down"
-            onPointerDown={(e) => { e.preventDefault(); startRepeat(() => handleRef.current?.scrollDown()) }}
+            onPointerDown={(e) => { e.preventDefault(); dismissKeyboardIfHidden(); startRepeat(() => handleRef.current?.scrollDown()) }}
             className="flex flex-1 items-center justify-center border-t border-gray-800 px-2 text-xs text-gray-400 active:bg-gray-700"
           >
             ▼

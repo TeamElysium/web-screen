@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 // Mock next/navigation
@@ -13,6 +13,8 @@ const mockSendInput = vi.fn()
 const mockCleanup = vi.fn()
 const mockSetFontSize = vi.fn()
 const mockGetFontSize = vi.fn(() => 14)
+const mockScrollUp = vi.fn()
+const mockScrollDown = vi.fn()
 
 vi.mock('@/lib/terminal-client', () => ({
   createTerminalConnection: vi.fn(() => ({
@@ -21,6 +23,8 @@ vi.mock('@/lib/terminal-client', () => ({
     getBufferText: vi.fn(() => ''),
     setFontSize: mockSetFontSize,
     getFontSize: mockGetFontSize,
+    scrollUp: mockScrollUp,
+    scrollDown: mockScrollDown,
   })),
 }))
 
@@ -322,6 +326,220 @@ describe('Font size controls', () => {
     fireEvent.pointerDown(screen.getByTestId('vk-font-up'))
     expect(sessionStorage.getItem('terminal-font-size')).toBe('16')
     expect(sessionStorage.getItem('terminal-font-size')).not.toBe('14')
+  })
+})
+
+describe('Scroll buttons and mobile keyboard state', () => {
+  // Invariants:
+  //   A) On mobile, after the user dismisses the OS keyboard xterm's hidden
+  //      textarea keeps focus. Tapping scroll buttons then re-shows the keyboard.
+  //      Fix: blur focused text input before scrolling — but only when the
+  //      keyboard is already DOWN.
+  //   B) If the keyboard is currently UP the user is actively typing; scrolling
+  //      must not dismiss it.
+  //   C) On desktop there is no OS keyboard; blurring the terminal focus would
+  //      just break typing — leave focus alone.
+  //
+  // Detection: we track the largest visualViewport.height ever observed as a
+  // "no keyboard" baseline, then compare current against it. Robust across
+  // iOS (innerHeight constant) and Android (innerHeight shrinks with keyboard).
+
+  const originalTouch = navigator.maxTouchPoints
+  const originalInnerHeight = window.innerHeight
+  const originalVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+
+  type FakeVV = {
+    height: number
+    addEventListener: (t: string, fn: () => void) => void
+    removeEventListener: (t: string, fn: () => void) => void
+    _set: (h: number) => void
+  }
+
+  function makeVisualViewport(initial: number): FakeVV {
+    const listeners = new Set<() => void>()
+    return {
+      height: initial,
+      addEventListener(type, fn) { if (type === 'resize') listeners.add(fn) },
+      removeEventListener(type, fn) { if (type === 'resize') listeners.delete(fn) },
+      _set(h: number) { this.height = h; listeners.forEach(fn => fn()) },
+    }
+  }
+
+  function setEnv(opts: { touch: boolean; initialHeight: number }): FakeVV {
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: opts.touch ? 1 : 0, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: opts.initialHeight, configurable: true })
+    const vv = makeVisualViewport(opts.initialHeight)
+    Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true })
+    return vv
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: originalTouch, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true })
+    if (originalVisualViewport) {
+      Object.defineProperty(window, 'visualViewport', originalVisualViewport)
+    } else {
+      // @ts-expect-error intentional cleanup for jsdom
+      delete window.visualViewport
+    }
+  })
+
+  function focusedTextarea(): HTMLTextAreaElement {
+    const ta = document.createElement('textarea')
+    document.body.appendChild(ta)
+    ta.focus()
+    return ta
+  }
+
+  // Invariant A: touch device + keyboard hidden → scroll blurs to prevent re-pop.
+  it('touch + keyboard DOWN: scroll-up blurs focused textarea', async () => {
+    setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).not.toBe(ta)
+    expect(mockScrollUp).toHaveBeenCalled()
+    document.body.removeChild(ta)
+  })
+
+  it('touch + keyboard DOWN: scroll-down blurs focused textarea', async () => {
+    setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-down'))
+    expect(document.activeElement).not.toBe(ta)
+    expect(mockScrollDown).toHaveBeenCalled()
+    document.body.removeChild(ta)
+  })
+
+  // Invariant B: touch device + keyboard UP (viewport shrunk via resize event)
+  // → scroll must keep focus. This is the platform-agnostic case: baseline was
+  // set when page loaded, then viewport shrinks when keyboard opens.
+  it('touch + keyboard UP (iOS-style): scroll-up does NOT blur', async () => {
+    const vv = setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+    // Keyboard opens — only visualViewport shrinks (iOS behavior).
+    vv._set(400)
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).toBe(ta)
+    expect(mockScrollUp).toHaveBeenCalled()
+    document.body.removeChild(ta)
+  })
+
+  it('touch + keyboard UP (Android-style): scroll-up does NOT blur', async () => {
+    const vv = setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+    // Keyboard opens — both innerHeight and visualViewport shrink (Android).
+    // The baseline approach works because we track max(visualViewport.height).
+    Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true })
+    vv._set(400)
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).toBe(ta)
+    document.body.removeChild(ta)
+  })
+
+  it('touch + keyboard UP: scroll-down does NOT blur', async () => {
+    const vv = setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+    vv._set(400)
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-down'))
+    expect(document.activeElement).toBe(ta)
+    expect(mockScrollDown).toHaveBeenCalled()
+    document.body.removeChild(ta)
+  })
+
+  // Round-trip: keyboard opened then dismissed → textarea still focused, but
+  // baseline remembered the original height, so scroll now correctly blurs.
+  it('touch + keyboard opened then closed: scroll-up blurs', async () => {
+    const vv = setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+    vv._set(400)  // keyboard up
+    vv._set(800)  // keyboard dismissed (xterm textarea still focused in real app)
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).not.toBe(ta)
+    document.body.removeChild(ta)
+  })
+
+  // Invariant C: desktop (no touch) → never blur on scroll.
+  it('desktop: scroll does NOT blur focused textarea', async () => {
+    setEnv({ touch: false, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).toBe(ta)
+    document.body.removeChild(ta)
+  })
+
+  // Boundary: threshold is 150px. 149px shrink must still count as "down",
+  // 151px must count as "up".
+  it('boundary: 149px shrink counts as keyboard DOWN → blurs', async () => {
+    const vv = setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+    vv._set(651)
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).not.toBe(ta)
+    document.body.removeChild(ta)
+  })
+
+  it('boundary: 151px shrink counts as keyboard UP → does NOT blur', async () => {
+    const vv = setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+    vv._set(649)
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-scroll-up'))
+    expect(document.activeElement).toBe(ta)
+    document.body.removeChild(ta)
+  })
+
+  // Mutation guard: other virtual-keyboard buttons must never blur,
+  // regardless of keyboard state.
+  it('Esc button does NOT blur focused textarea (keyboard down, touch)', async () => {
+    setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-Esc'))
+    expect(document.activeElement).toBe(ta)
+    document.body.removeChild(ta)
+  })
+
+  it('Ctrl modifier does NOT blur focused textarea (keyboard down, touch)', async () => {
+    setEnv({ touch: true, initialHeight: 800 })
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    const ta = focusedTextarea()
+    fireEvent.pointerDown(screen.getByTestId('vk-Ctrl'))
+    expect(document.activeElement).toBe(ta)
+    document.body.removeChild(ta)
   })
 })
 
