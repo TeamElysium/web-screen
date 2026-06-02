@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import { parseScreenList, listSessions, createSession, sessionExists, killSession as killScreenSession } from '@/lib/screen-manager'
 import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
@@ -29,6 +32,30 @@ describe('parseScreenList', () => {
     expect(result).toHaveLength(2)
     expect(result[0]).toEqual({ id: '99999', name: 'session_a', status: 'attached' })
     expect(result[1]).toEqual({ id: '88888', name: 'session_b', status: 'detached' })
+  })
+
+  it('parses GNU screen output with timestamp columns', () => {
+    const output = `There are screens on:
+\t1787643.Webscreen\t(06/02/26 19:45:49)\t(Attached)
+\t1782416.Codex2\t(06/02/26 19:43:13)\t(Detached)
+2 Sockets in /run/screen/S-ely.\n`
+    const result = parseScreenList(output)
+    expect(result).toEqual([
+      { id: '1787643', name: 'Webscreen', status: 'attached' },
+      { id: '1782416', name: 'Codex2', status: 'detached' },
+    ])
+  })
+
+  it('ignores dead GNU screen sockets', () => {
+    const output = `There are screens on:
+\t1782416.Codex2\t(06/02/26 19:43:13)\t(Detached)
+\t15084.pts-0.ely-gpu3\t(02/10/26 12:43:01)\t(Dead ???)
+Remove dead screens with 'screen -wipe'.
+2 Sockets in /run/screen/S-ely.\n`
+    const result = parseScreenList(output)
+    expect(result).toEqual([
+      { id: '1782416', name: 'Codex2', status: 'detached' },
+    ])
   })
 
   it('handles session names with dots', () => {

@@ -9,17 +9,16 @@ vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
 
 // Mock ResizeObserver (not available in jsdom)
 const mockResizeObserverDisconnect = vi.fn()
-globalThis.ResizeObserver = class {
-  constructor(_cb: () => void) {}
+globalThis.ResizeObserver = class implements ResizeObserver {
   observe = vi.fn()
   unobserve = vi.fn()
   disconnect = mockResizeObserverDisconnect
-} as any
+}
 
 // Mock socket.io-client
-const mockEmit = vi.fn()
-const mockOn = vi.fn()
-const mockDisconnect = vi.fn()
+const mockEmit = vi.fn<(event: string, data?: unknown) => void>()
+const mockOn = vi.fn<(event: string, handler: (...args: unknown[]) => void) => void>()
+const mockDisconnect = vi.fn<() => void>()
 const mockSocket = {
   emit: mockEmit,
   on: mockOn,
@@ -48,7 +47,7 @@ vi.mock('@xterm/xterm', () => {
       loadAddon = mockLoadAddon
       cols = 80
       rows = 30
-      options: Record<string, any> = {}
+      options: { fontSize?: number } = {}
       buffer = { active: { length: 0, getLine: () => null } }
       scrollToBottom = vi.fn()
       unicode = { activeVersion: '6', versions: ['6'], register: vi.fn() }
@@ -80,11 +79,15 @@ function flushRaf() {
 }
 
 function getConnectHandler() {
-  return mockOn.mock.calls.find((call: any[]) => call[0] === 'connect')
+  return mockOn.mock.calls.find((call) => call[0] === 'connect')
 }
 
 function getOutputHandler() {
-  return mockOn.mock.calls.find((call: any[]) => call[0] === 'terminal:output')
+  return mockOn.mock.calls.find((call) => call[0] === 'terminal:output')
+}
+
+function getDetachedHandler() {
+  return mockOn.mock.calls.find((call) => call[0] === 'terminal:detached')
 }
 
 function wait(ms: number): Promise<void> {
@@ -204,8 +207,24 @@ describe('Terminal component logic', () => {
     handle.cleanup()
 
     expect(mockResizeObserverDisconnect).toHaveBeenCalled()
+    expect(mockEmit).toHaveBeenCalledWith('terminal:detach')
     expect(mockDisconnect).toHaveBeenCalled()
     expect(mockDispose).toHaveBeenCalled()
+  })
+
+  it('writes detached message when screen detach ends the attach process', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+
+    const handle = createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
+
+    const detachedHandler = getDetachedHandler()
+    expect(detachedHandler).toBeDefined()
+
+    detachedHandler![1]()
+    expect(mockWrite).toHaveBeenCalledWith('\r\n[Detached]\r\n')
+
+    handle.cleanup()
   })
 
   it('emits terminal:resize after setFontSize to sync PTY cols/rows', async () => {

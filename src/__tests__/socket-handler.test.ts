@@ -1,11 +1,18 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
 import { createServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
 import { io as ioClient, Socket as ClientSocket } from 'socket.io-client'
 import { setupSocketHandler } from '@/lib/socket-handler'
-import { createSession } from '@/lib/screen-manager'
+import { createSession, sessionExists } from '@/lib/screen-manager'
 import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 import type { AddressInfo } from 'net'
+import { execFileSync } from 'child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 const TEST_PREFIX = 'wst_sock_'
 let testCounter = 0
@@ -50,6 +57,31 @@ function connectClient(): ClientSocket {
   return ioClient(`http://localhost:${port}`, {
     transports: ['websocket'],
   })
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function screenListLine(name: string): string {
+  try {
+    const output = execFileSync('screen', ['-ls'], { encoding: 'utf8', timeout: 3000 })
+    return output.split('\n').find(line => line.includes(name)) ?? ''
+  } catch (err) {
+    const output = err && typeof err === 'object'
+      ? `${(err as { stdout?: string }).stdout ?? ''}${(err as { stderr?: string }).stderr ?? ''}`
+      : ''
+    return output.split('\n').find(line => line.includes(name)) ?? ''
+  }
+}
+
+async function waitForScreenStatus(name: string, status: 'Attached' | 'Detached'): Promise<void> {
+  const deadline = Date.now() + 3000
+  while (Date.now() < deadline) {
+    if (screenListLine(name).includes(`(${status})`)) return
+    await wait(100)
+  }
+  throw new Error(`Timed out waiting for ${name} to become ${status}`)
 }
 
 describe('socket-handler', () => {
@@ -143,4 +175,42 @@ describe('socket-handler', () => {
     })
   })
 
+  it('detaches instead of killing a session when the browser disconnects', async () => {
+    const name = uniqueName('autodetach')
+    const dir = mkdtempSync(join(tmpdir(), 'wst-screenrc-'))
+    const screenRc = join(dir, 'screenrc')
+    writeFileSync(screenRc, 'autodetach off\n')
+    trackSession(name)
+
+    try {
+      execFileSync('screen', [
+        '-c',
+        screenRc,
+        '-dmUS',
+        name,
+        'bash',
+        '-lc',
+        'while true; do sleep 60; done',
+      ], { timeout: 3000 })
+
+      const client = connectClient()
+      await new Promise<void>((resolve) => {
+        client.on('connect', () => {
+          client.emit('terminal:attach', { session: name })
+          resolve()
+        })
+      })
+
+      await waitForScreenStatus(name, 'Attached')
+      client.close()
+      await wait(2500)
+
+      expect(await sessionExists(name)).toBe(true)
+    } finally {
+      try {
+        execFileSync('screen', ['-S', name, '-X', 'quit'], { timeout: 3000 })
+      } catch {}
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 10000)
 })

@@ -2,7 +2,10 @@ import type { Server as SocketIOServer, Socket } from 'socket.io'
 import * as pty from 'node-pty'
 import { execFileSync } from 'child_process'
 import { checkIP, getClientIPForServer } from './auth'
-import { validateSessionName } from './screen-manager'
+import { sessionExists, validateSessionName } from './screen-manager'
+
+const SCREEN_DETACH_SEQUENCE = '\x01d'
+const DETACH_FALLBACK_KILL_MS = 2000
 
 export function setupSocketHandler(io: SocketIOServer): void {
   io.use((socket, next) => {
@@ -17,6 +20,32 @@ export function setupSocketHandler(io: SocketIOServer): void {
   io.on('connection', (socket: Socket) => {
     let ptyProcess: pty.IPty | null = null
     let currentSession: string | null = null
+    const intentionallyDetached = new WeakSet<pty.IPty>()
+
+    const detachPty = () => {
+      if (!ptyProcess) return
+
+      const proc = ptyProcess
+      if (intentionallyDetached.has(proc)) return
+
+      intentionallyDetached.add(proc)
+      try {
+        proc.write(SCREEN_DETACH_SEQUENCE)
+      } catch {
+        try {
+          proc.kill()
+        } catch {}
+      }
+
+      setTimeout(() => {
+        if (ptyProcess === proc) {
+          try {
+            proc.kill()
+          } catch {}
+          ptyProcess = null
+        }
+      }, DETACH_FALLBACK_KILL_MS)
+    }
 
     socket.on('terminal:attach', ({ session, cols, rows }: { session: string; cols?: number; rows?: number }) => {
       try {
@@ -27,8 +56,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
       }
 
       if (ptyProcess) {
-        ptyProcess.kill()
-        ptyProcess = null
+        detachPty()
       }
 
       // Enable UTF-8 on the target session before attaching —
@@ -40,6 +68,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
 
       const ptyCol = cols || 80
       const ptyRow = rows || 30
+      const attachedSession = session
 
       currentSession = session
       console.log(`[server] terminal:attach session=${session} cols=${ptyCol} rows=${ptyRow}`)
@@ -47,12 +76,13 @@ export function setupSocketHandler(io: SocketIOServer): void {
       // Spawn PTY 1 col smaller — screen dumps old buffer at this size.
       // After discarding that stale output, resize to the real size so
       // screen sees an actual size change and sends a full redraw.
-      ptyProcess = pty.spawn('screen', ['-xU', session], {
+      const proc = pty.spawn('screen', ['-xU', session], {
         name: 'xterm-256color',
         cols: Math.max(ptyCol - 1, 1),
         rows: ptyRow,
         cwd: process.env.HOME,
       })
+      ptyProcess = proc
 
       let discarding = true
       let outputBuf = ''
@@ -66,7 +96,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
         }
       }
 
-      ptyProcess.onData((data: string) => {
+      proc.onData((data: string) => {
         if (!discarding) {
           outputBuf += data
           if (!flushScheduled) {
@@ -79,17 +109,27 @@ export function setupSocketHandler(io: SocketIOServer): void {
       setTimeout(() => {
         discarding = false
         // Resize to real size — actual change triggers SIGWINCH → full redraw
-        ptyProcess?.resize(ptyCol, ptyRow)
+        if (ptyProcess === proc) {
+          proc.resize(ptyCol, ptyRow)
+        }
       }, 50)
 
-      ptyProcess.onExit(() => {
+      proc.onExit(async () => {
+        const wasIntentionalDetach = intentionallyDetached.has(proc)
+        intentionallyDetached.delete(proc)
+        if (ptyProcess === proc) {
+          ptyProcess = null
+        }
+        if (wasIntentionalDetach) return
+
         // Flush remaining buffered output before signaling exit
         if (outputBuf) {
           socket.emit('terminal:output', outputBuf)
           outputBuf = ''
         }
-        socket.emit('terminal:exit')
-        ptyProcess = null
+
+        const stillExists = await sessionExists(attachedSession)
+        socket.emit(stillExists ? 'terminal:detached' : 'terminal:exit')
       })
     })
 
@@ -115,11 +155,12 @@ export function setupSocketHandler(io: SocketIOServer): void {
       }
     })
 
+    socket.on('terminal:detach', () => {
+      detachPty()
+    })
+
     socket.on('disconnect', () => {
-      if (ptyProcess) {
-        ptyProcess.kill()
-        ptyProcess = null
-      }
+      detachPty()
     })
   })
 }

@@ -1,7 +1,6 @@
-import { exec, execFile } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
 
-const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
 
 const SAFE_SESSION_NAME = /^[a-zA-Z0-9_-]+$/
@@ -26,7 +25,7 @@ export function parseScreenList(output: string): ScreenSession[] {
   const lines = output.split('\n')
 
   for (const line of lines) {
-    const match = line.match(/^\t(\d+)\.(.+?)\t\((\w+)\)/)
+    const match = line.match(/^\s*(\d+)\.(.+?)\s+(?:\([^)]+\)\s+)?\((Attached|Detached)\)/i)
     if (match) {
       sessions.push({
         id: match[1],
@@ -39,17 +38,22 @@ export function parseScreenList(output: string): ScreenSession[] {
   return sessions
 }
 
-export async function listSessions(): Promise<ScreenSession[]> {
+async function screenOutput(args: string[]): Promise<string> {
   try {
-    const { stdout } = await execAsync('screen -ls 2>&1')
-    return parseScreenList(stdout)
+    const { stdout, stderr } = await execFileAsync('screen', args)
+    return `${stdout}${stderr}`
   } catch (err: unknown) {
-    // screen -ls exits with code 1 even when sessions exist
-    if (err && typeof err === 'object' && 'stdout' in err) {
-      return parseScreenList((err as { stdout: string }).stdout)
+    if (err && typeof err === 'object') {
+      const output = err as { stdout?: string; stderr?: string }
+      return `${output.stdout ?? ''}${output.stderr ?? ''}`
     }
-    return []
+    return ''
   }
+}
+
+export async function listSessions(): Promise<ScreenSession[]> {
+  await screenOutput(['-wipe'])
+  return parseScreenList(await screenOutput(['-ls']))
 }
 
 export async function createSession(name: string): Promise<void> {

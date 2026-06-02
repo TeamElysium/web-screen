@@ -117,6 +117,10 @@ export function createTerminalConnection(
     socket.on('terminal:exit', () => {
       term.write('\r\n[Session ended]\r\n')
     })
+
+    socket.on('terminal:detached', () => {
+      term.write('\r\n[Detached]\r\n')
+    })
   })
 
   const handle: TerminalHandle = {} as TerminalHandle
@@ -165,6 +169,7 @@ export function createTerminalConnection(
       clearTimer(settleTimer)
       clearTimer(maxHideTimer)
       clearTimer(resizeDebounce)
+      socket?.emit('terminal:detach')
       socket?.disconnect()
       term.dispose()
     },
