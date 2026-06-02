@@ -83,6 +83,14 @@ function getConnectHandler() {
   return mockOn.mock.calls.find((call: any[]) => call[0] === 'connect')
 }
 
+function getOutputHandler() {
+  return mockOn.mock.calls.find((call: any[]) => call[0] === 'terminal:output')
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 describe('Terminal component logic', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -141,13 +149,37 @@ describe('Terminal component logic', () => {
     createTerminalConnection('test-session', document.createElement('div'))
     flushRaf()
 
-    const outputHandler = mockOn.mock.calls.find(
-      (call: any[]) => call[0] === 'terminal:output'
-    )
+    const outputHandler = getOutputHandler()
     expect(outputHandler).toBeDefined()
 
     outputHandler![1]('hello world')
     expect(mockWrite).toHaveBeenCalledWith('hello world')
+  })
+
+  it('reveals terminal even when redraw output never settles', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+
+    const container = document.createElement('div')
+    const handle = createTerminalConnection('test-session', container)
+    try {
+      expect(container.style.opacity).toBe('0')
+      flushRaf()
+
+      const outputHandler = getOutputHandler()
+      expect(outputHandler).toBeDefined()
+
+      outputHandler![1]('frame 1')
+      await wait(190)
+      outputHandler![1]('frame 2')
+      await wait(190)
+      outputHandler![1]('frame 3')
+      expect(container.style.opacity).toBe('0')
+
+      await wait(130)
+      expect(container.style.opacity).toBe('1')
+    } finally {
+      handle.cleanup()
+    }
   })
 
   it('sends terminal:input when user types', async () => {

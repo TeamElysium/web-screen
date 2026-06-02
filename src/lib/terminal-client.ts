@@ -3,6 +3,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { io } from 'socket.io-client'
 
+const REDRAW_SETTLE_MS = 200
+const REDRAW_MAX_HIDE_MS = 500
+
 export interface TerminalHandle {
   cleanup: () => void
   sendInput: (data: string) => void
@@ -33,19 +36,42 @@ export function createTerminalConnection(
   term.unicode.activeVersion = '11'
   term.open(container)
 
-  // Hide terminal during initial data burst (TUI redraw flicker)
-  container.style.opacity = '0'
-
   let socket: ReturnType<typeof io> | null = null
   let ptyCols = term.cols
   let ptyRows = term.rows
   let firstOutput = true
-  let redrawing = true  // true during initial connect and resize
+  let redrawing = false  // true during initial connect and resize
   let settleTimer: ReturnType<typeof setTimeout> | null = null
+  let maxHideTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearTimer = (timer: ReturnType<typeof setTimeout> | null) => {
+    if (timer) clearTimeout(timer)
+  }
+
   const revealTerminal = () => {
+    clearTimer(settleTimer)
+    clearTimer(maxHideTimer)
+    settleTimer = null
+    maxHideTimer = null
     container.style.opacity = '1'
     redrawing = false
   }
+
+  const scheduleSettleReveal = () => {
+    clearTimer(settleTimer)
+    settleTimer = setTimeout(revealTerminal, REDRAW_SETTLE_MS)
+  }
+
+  const startRedraw = () => {
+    redrawing = true
+    container.style.opacity = '0'
+    clearTimer(settleTimer)
+    clearTimer(maxHideTimer)
+    settleTimer = null
+    maxHideTimer = setTimeout(revealTerminal, REDRAW_MAX_HIDE_MS)
+  }
+
+  startRedraw()
 
   // xterm needs at least one render frame after open() before fitAddon can
   // measure character cell dimensions. If we fit() + connect immediately,
@@ -70,8 +96,7 @@ export function createTerminalConnection(
 
       // Only manage settle timer during redraw (connect/resize)
       if (redrawing) {
-        if (settleTimer) clearTimeout(settleTimer)
-        settleTimer = setTimeout(revealTerminal, 200)
+        scheduleSettleReveal()
       }
 
       if (firstOutput) {
@@ -114,10 +139,8 @@ export function createTerminalConnection(
     if (term.cols !== ptyCols || term.rows !== ptyRows) {
       ptyCols = term.cols
       ptyRows = term.rows
-      // Hide during TUI redraw
-      redrawing = true
-      container.style.opacity = '0'
-      if (settleTimer) clearTimeout(settleTimer)
+      // Hide briefly during TUI redraw, but never wait forever for quiet output.
+      startRedraw()
       // Debounce: only send final size after resizing settles
       if (resizeDebounce) clearTimeout(resizeDebounce)
       resizeDebounce = setTimeout(() => {
@@ -126,7 +149,7 @@ export function createTerminalConnection(
         fitAddon.fit()
         ptyCols = term.cols
         ptyRows = term.rows
-        settleTimer = setTimeout(revealTerminal, 200)
+        scheduleSettleReveal()
         socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
       }, 100)
     }
@@ -139,6 +162,9 @@ export function createTerminalConnection(
     onBeforeInput: null,
     cleanup: () => {
       resizeObserver.disconnect()
+      clearTimer(settleTimer)
+      clearTimer(maxHideTimer)
+      clearTimer(resizeDebounce)
       socket?.disconnect()
       term.dispose()
     },
