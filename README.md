@@ -5,6 +5,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 First, run the development server:
 
 ```bash
+export ALLOWED_IPS=127.0.0.1
 npm run dev
 # or
 yarn dev
@@ -15,6 +16,12 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+Access is controlled by the `ALLOWED_IPS` environment variable. Set a comma-separated
+IP allowlist such as `ALLOWED_IPS=127.0.0.1,192.168.1.10`. If `ALLOWED_IPS` is empty
+or unset, requests are denied before Next.js handles HTTP requests. Socket.io
+connections are checked with the same allowlist. When running behind a trusted
+reverse proxy, set `TRUST_PROXY=true` to use `x-real-ip` / `x-forwarded-for`.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

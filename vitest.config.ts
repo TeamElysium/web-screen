@@ -11,6 +11,7 @@ export default defineConfig({
       ['src/__tests__/socket-handler.test.ts', 'node'],
       ['src/__tests__/screen-manager.test.ts', 'node'],
       ['src/__tests__/auth.test.ts', 'node'],
+      ['src/__tests__/middleware.test.ts', 'node'],
       ['src/__tests__/screen-utf8.test.ts', 'node'],
       ['src/__tests__/charwidth.test.ts', 'node'],
       ['src/__tests__/pty-rendering.test.ts', 'node'],

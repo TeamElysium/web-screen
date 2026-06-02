@@ -50,20 +50,21 @@ src/
     page.tsx                 # 세션 목록 + 새 세션 생성
     terminal/[session]/
       page.tsx               # 터미널 뷰
-    login/page.tsx           # 비밀번호 입력
   lib/
     screen-manager.ts        # screen 세션 관리 로직
     socket-handler.ts        # Socket.io 이벤트 핸들링
-    auth.ts                  # IP 제한 + 비밀번호 인증
+    auth.ts                  # IP 허용 목록 검사
   components/
     Terminal.tsx             # xterm.js 래퍼 (client component)
 ```
 
 ## 인증
 
-- IP 허용 목록: `ALLOWED_IPS` 환경변수
-- 비밀번호: `PASSWORD` 환경변수, httpOnly 쿠키 기반
-- 개인용이므로 최소 보안
+- IP 허용 목록: `ALLOWED_IPS` 환경변수, 쉼표로 여러 IP 지정
+- `ALLOWED_IPS`가 비어 있거나 설정되지 않으면 모든 접근 차단
+- 예: `ALLOWED_IPS=127.0.0.1,192.168.1.10`
+- HTTP 요청은 Next.js 처리 전에 custom server에서 차단하고, Socket.io도 같은 allowlist로 차단
+- 신뢰할 수 있는 reverse proxy 뒤에서만 `TRUST_PROXY=true`로 `x-real-ip` / `x-forwarded-for` 사용
 
 ## Socket.io 이벤트
 

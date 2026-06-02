@@ -1,20 +1,14 @@
 import type { Server as SocketIOServer, Socket } from 'socket.io'
 import * as pty from 'node-pty'
 import { execFileSync } from 'child_process'
-import { validateSessionToken } from './auth'
+import { checkIP, getClientIPForServer } from './auth'
 import { validateSessionName } from './screen-manager'
 
 export function setupSocketHandler(io: SocketIOServer): void {
-  // Auth middleware — read session token from cookie or auth payload
   io.use((socket, next) => {
-    // Try auth payload first, then cookie header
-    let token = socket.handshake.auth?.token
-    if (!token) {
-      const cookieHeader = socket.handshake.headers?.cookie || ''
-      const match = cookieHeader.match(/(?:^|;\s*)session=([^;]*)/)
-      token = match ? match[1] : ''
-    }
-    if (!token || !validateSessionToken(token)) {
+    const clientIP = getClientIPForServer(socket.handshake.headers, socket.handshake.address)
+
+    if (!checkIP(clientIP)) {
       return next(new Error('auth failed'))
     }
     next()

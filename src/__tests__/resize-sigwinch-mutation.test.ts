@@ -27,7 +27,7 @@ vi.mock('node-pty', () => ({
 }))
 
 vi.mock('../lib/auth', () => ({
-  validateSessionToken: () => true,
+  checkIP: () => true,
 }))
 
 vi.mock('../lib/screen-manager', () => ({
@@ -69,7 +69,6 @@ afterEach(async () => {
 
 function connectClient(): ClientSocket {
   return ioClient(`http://localhost:${port}`, {
-    auth: { token: 'any' },
     transports: ['websocket'],
   })
 }

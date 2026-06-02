@@ -3,7 +3,6 @@ import { createServer } from 'http'
 import { Server as SocketIOServer } from 'socket.io'
 import { io as ioClient, Socket as ClientSocket } from 'socket.io-client'
 import { setupSocketHandler } from '@/lib/socket-handler'
-import { createSessionToken } from '@/lib/auth'
 import { createSession } from '@/lib/screen-manager'
 import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 import type { AddressInfo } from 'net'
@@ -19,8 +18,7 @@ let ioServer: SocketIOServer
 let port: number
 
 beforeEach(() => {
-  vi.stubEnv('PASSWORD', 'testpass')
-  vi.stubEnv('ALLOWED_IPS', '')
+  vi.stubEnv('ALLOWED_IPS', '127.0.0.1')
 
   httpServer = createServer()
   ioServer = new SocketIOServer(httpServer)
@@ -48,17 +46,17 @@ afterAll(() => {
   cleanupTrackedSessions()
 })
 
-function connectClient(token?: string): ClientSocket {
+function connectClient(): ClientSocket {
   return ioClient(`http://localhost:${port}`, {
-    auth: { token: token ?? createSessionToken() },
     transports: ['websocket'],
   })
 }
 
 describe('socket-handler', () => {
-  it('rejects connection without valid token', () => {
+  it('rejects connection when client IP is not allowed', () => {
     return new Promise<void>((resolve) => {
-      const client = connectClient('invalid-token')
+      vi.stubEnv('ALLOWED_IPS', '10.0.0.1')
+      const client = connectClient()
       client.on('connect_error', (err) => {
         expect(err.message).toContain('auth')
         client.close()
@@ -67,45 +65,11 @@ describe('socket-handler', () => {
     })
   })
 
-  it('accepts connection with valid token in auth payload', () => {
+  it('accepts connection when client IP is allowed', () => {
     return new Promise<void>((resolve) => {
       const client = connectClient()
       client.on('connect', () => {
         expect(client.connected).toBe(true)
-        client.close()
-        resolve()
-      })
-    })
-  })
-
-  it('accepts connection with valid token in cookie header', () => {
-    return new Promise<void>((resolve) => {
-      const token = createSessionToken()
-      const client = ioClient(`http://localhost:${port}`, {
-        transports: ['websocket'],
-        extraHeaders: {
-          cookie: `session=${token}`,
-        },
-      })
-      client.on('connect', () => {
-        expect(client.connected).toBe(true)
-        client.close()
-        resolve()
-      })
-      client.on('connect_error', (err) => {
-        client.close()
-        throw new Error(`Cookie auth should have worked: ${err.message}`)
-      })
-    })
-  })
-
-  it('rejects connection with no token and no cookie', () => {
-    return new Promise<void>((resolve) => {
-      const client = ioClient(`http://localhost:${port}`, {
-        transports: ['websocket'],
-      })
-      client.on('connect_error', (err) => {
-        expect(err.message).toContain('auth')
         client.close()
         resolve()
       })

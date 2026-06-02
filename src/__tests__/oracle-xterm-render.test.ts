@@ -8,7 +8,6 @@ import { Terminal } from '@xterm/headless'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import * as pty from 'node-pty'
 import { setupSocketHandler } from '@/lib/socket-handler'
-import { createSessionToken } from '@/lib/auth'
 import { diffGrids, snapshotGrid, type Grid } from '@/lib/oracle'
 import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 
@@ -134,8 +133,7 @@ let ioServer: SocketIOServer
 let port: number
 
 beforeEach(() => {
-  vi.stubEnv('PASSWORD', 'testpass')
-  vi.stubEnv('ALLOWED_IPS', '')
+  vi.stubEnv('ALLOWED_IPS', '127.0.0.1')
 
   httpServer = createServer()
   ioServer = new SocketIOServer(httpServer)
@@ -162,7 +160,6 @@ afterEach(() => {
 
 function connectClient(): ClientSocket {
   return ioClient(`http://localhost:${port}`, {
-    auth: { token: createSessionToken() },
     transports: ['websocket'],
   })
 }

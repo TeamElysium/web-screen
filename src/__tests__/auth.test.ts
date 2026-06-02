@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { checkIP, verifyPassword, createSessionToken, validateSessionToken } from '@/lib/auth'
+import {
+  CLIENT_IP_HEADER,
+  checkIP,
+  getClientIPForServer,
+  getClientIPFromHeaders,
+  normalizeIP,
+} from '@/lib/auth'
 
 describe('checkIP', () => {
   beforeEach(() => {
@@ -21,14 +27,14 @@ describe('checkIP', () => {
     expect(checkIP('10.0.0.1')).toBe(true)
   })
 
-  it('allows all when ALLOWED_IPS is empty', () => {
+  it('rejects all when ALLOWED_IPS is empty', () => {
     vi.stubEnv('ALLOWED_IPS', '')
-    expect(checkIP('1.2.3.4')).toBe(true)
+    expect(checkIP('1.2.3.4')).toBe(false)
   })
 
-  it('allows all when ALLOWED_IPS is not set', () => {
+  it('rejects all when ALLOWED_IPS is not set', () => {
     delete process.env.ALLOWED_IPS
-    expect(checkIP('1.2.3.4')).toBe(true)
+    expect(checkIP('1.2.3.4')).toBe(false)
   })
 
   it('allows localhost variants', () => {
@@ -42,57 +48,101 @@ describe('checkIP', () => {
     vi.stubEnv('ALLOWED_IPS', ' 192.168.1.10 , 10.0.0.1 ')
     expect(checkIP('192.168.1.10')).toBe(true)
   })
+
+  it('matches IPv4-mapped addresses against plain IPv4 allowlist entries', () => {
+    vi.stubEnv('ALLOWED_IPS', '192.168.1.10')
+    expect(checkIP('::ffff:192.168.1.10')).toBe(true)
+  })
+
+  it('rejects empty client IP', () => {
+    vi.stubEnv('ALLOWED_IPS', '192.168.1.10')
+    expect(checkIP('')).toBe(false)
+  })
 })
 
-describe('verifyPassword', () => {
+describe('normalizeIP', () => {
+  it('strips IPv4 ports and IPv6 brackets', () => {
+    expect(normalizeIP('192.168.1.10:3000')).toBe('192.168.1.10')
+    expect(normalizeIP('[::1]:3000')).toBe('::1')
+  })
+
+  it('uses the first x-forwarded-for entry', () => {
+    expect(normalizeIP('192.168.1.10, 10.0.0.1')).toBe('192.168.1.10')
+  })
+
+  it('normalizes IPv4-mapped IPv6 addresses', () => {
+    expect(normalizeIP('::ffff:192.168.1.10')).toBe('192.168.1.10')
+  })
+})
+
+describe('getClientIPFromHeaders', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it('returns true for correct password', () => {
-    vi.stubEnv('PASSWORD', 'secret123')
-    expect(verifyPassword('secret123')).toBe(true)
+  it('prefers the server-injected client IP header', () => {
+    const headers = new Headers({
+      [CLIENT_IP_HEADER]: '192.168.1.10',
+      'x-real-ip': '10.0.0.1',
+      'x-forwarded-for': '10.0.0.2',
+    })
+
+    expect(getClientIPFromHeaders(headers)).toBe('192.168.1.10')
   })
 
-  it('returns false for wrong password', () => {
-    vi.stubEnv('PASSWORD', 'secret123')
-    expect(verifyPassword('wrong')).toBe(false)
+  it('does not trust proxy headers by default', () => {
+    const headers = new Headers({
+      'x-real-ip': '10.0.0.1',
+      'x-forwarded-for': '10.0.0.2',
+    })
+
+    expect(getClientIPFromHeaders(headers)).toBe('')
   })
 
-  it('returns false for empty input', () => {
-    vi.stubEnv('PASSWORD', 'secret123')
-    expect(verifyPassword('')).toBe(false)
+  it('uses x-real-ip when TRUST_PROXY is enabled', () => {
+    vi.stubEnv('TRUST_PROXY', 'true')
+    const headers = new Headers({
+      'x-real-ip': '10.0.0.1',
+      'x-forwarded-for': '10.0.0.2',
+    })
+
+    expect(getClientIPFromHeaders(headers)).toBe('10.0.0.1')
+  })
+
+  it('uses x-forwarded-for when TRUST_PROXY is enabled', () => {
+    vi.stubEnv('TRUST_PROXY', 'true')
+    const headers = new Headers({
+      'x-forwarded-for': '10.0.0.2, 10.0.0.3',
+    })
+
+    expect(getClientIPFromHeaders(headers)).toBe('10.0.0.2')
+  })
+
+  it('supports plain header maps', () => {
+    expect(getClientIPFromHeaders({ [CLIENT_IP_HEADER]: '::ffff:127.0.0.1' })).toBe('127.0.0.1')
   })
 })
 
-describe('session token', () => {
+describe('getClientIPForServer', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
-    vi.stubEnv('PASSWORD', 'secret123')
   })
 
-  it('createSessionToken returns a non-empty string', () => {
-    const token = createSessionToken()
-    expect(typeof token).toBe('string')
-    expect(token.length).toBeGreaterThan(0)
+  it('uses the TCP peer address by default', () => {
+    expect(getClientIPForServer({ 'x-real-ip': '10.0.0.1' }, '192.168.1.10')).toBe('192.168.1.10')
   })
 
-  it('validateSessionToken returns true for valid token', () => {
-    const token = createSessionToken()
-    expect(validateSessionToken(token)).toBe(true)
+  it('does not trust a client-supplied internal header', () => {
+    expect(getClientIPForServer({ [CLIENT_IP_HEADER]: '10.0.0.1' }, '192.168.1.10')).toBe('192.168.1.10')
   })
 
-  it('validateSessionToken returns false for invalid token', () => {
-    expect(validateSessionToken('bogus-token')).toBe(false)
+  it('uses proxy headers when TRUST_PROXY is enabled', () => {
+    vi.stubEnv('TRUST_PROXY', 'true')
+    expect(getClientIPForServer({ 'x-forwarded-for': '10.0.0.1, 10.0.0.2' }, '192.168.1.10')).toBe('10.0.0.1')
   })
 
-  it('validateSessionToken returns false for empty string', () => {
-    expect(validateSessionToken('')).toBe(false)
-  })
-
-  it('token becomes invalid when PASSWORD changes', () => {
-    const token = createSessionToken()
-    vi.stubEnv('PASSWORD', 'newpassword')
-    expect(validateSessionToken(token)).toBe(false)
+  it('falls back to TCP peer address when TRUST_PROXY is enabled without proxy headers', () => {
+    vi.stubEnv('TRUST_PROXY', 'true')
+    expect(getClientIPForServer({}, '192.168.1.10')).toBe('192.168.1.10')
   })
 })
