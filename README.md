@@ -15,6 +15,16 @@ Smartphone Browser
   <-> GNU screen
   <-> Claude / Codex / shell
 ```
+<table>
+  <tr>
+    <td width="50%">
+      <img src="https://github.com/user-attachments/assets/2a568fa6-bec1-44aa-bda0-ab6296bbb77a" alt="image1" style="height: 400px; width: auto; object-fit: contain; display: block; margin: 0 auto;"/>
+    </td>
+    <td width="50%">
+      <img src="https://github.com/user-attachments/assets/d05420c2-b21a-4f80-983b-dd46f80ef049" alt="image2" style="height: 400px; width: auto; object-fit: contain; display: block; margin: 0 auto;"/>
+    </td>
+  </tr>
+</table>
 
 ## 주요 기능
 
