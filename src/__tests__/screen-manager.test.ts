@@ -2,8 +2,15 @@
  * @vitest-environment node
  */
 import { describe, it, expect, afterEach, afterAll } from 'vitest'
-import { parseScreenList, listSessions, createSession, sessionExists, killSession as killScreenSession } from '@/lib/screen-manager'
+import { parseScreenList, parseTmuxList, listSessions, createSession, sessionExists, killSession as killScreenSession } from '@/lib/screen-manager'
 import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
+import {
+  attachSpec,
+  createDetachedSessionArgs,
+  detachSequence,
+  resizeSessionArgs,
+  terminalBackendKind,
+} from '@/lib/terminal-backend'
 
 // --- Unit tests: parseScreenList ---
 
@@ -66,6 +73,120 @@ Remove dead screens with 'screen -wipe'.
     expect(result).toEqual([
       { id: '11111', name: 'my.dotted.name', status: 'detached' },
     ])
+  })
+})
+
+describe('parseTmuxList', () => {
+  it('parses formatted tmux session output', () => {
+    const output = `$0\twork\t0
+$1\tclaude\t1
+`
+    expect(parseTmuxList(output)).toEqual([
+      { id: '$0', name: 'work', status: 'detached' },
+      { id: '$1', name: 'claude', status: 'attached' },
+    ])
+  })
+
+  it('ignores malformed lines', () => {
+    expect(parseTmuxList('bad\n$2\tvalid\t0\n')).toEqual([
+      { id: '$2', name: 'valid', status: 'detached' },
+    ])
+  })
+})
+
+describe('terminal backend selection', () => {
+  it('defaults to tmux outside the test override', () => {
+    const previous = process.env.TERMINAL_BACKEND
+    delete process.env.TERMINAL_BACKEND
+    try {
+      expect(terminalBackendKind()).toBe('tmux')
+    } finally {
+      if (previous === undefined) delete process.env.TERMINAL_BACKEND
+      else process.env.TERMINAL_BACKEND = previous
+    }
+  })
+
+  it('uses tmux attach semantics without the screen stale-buffer workaround', () => {
+    const previous = process.env.TERMINAL_BACKEND
+    const previousSocket = process.env.TMUX_SOCKET_NAME
+    const previousConfig = process.env.TMUX_CONFIG
+    process.env.TERMINAL_BACKEND = 'tmux'
+    delete process.env.TMUX_SOCKET_NAME
+    delete process.env.TMUX_CONFIG
+    try {
+      const spec = attachSpec('mysession', 120, 40)
+
+      expect(spec.args).toContain('attach-session')
+      expect(spec.args).toContain('mysession')
+      expect(spec.args).not.toContain('-L')
+      expect(spec.args).not.toContain('-f')
+      expect(spec.cols).toBe(120)
+      expect(spec.rows).toBe(40)
+      expect(spec.discardInitialOutput).toBe(false)
+      expect(spec.resizeAfterAttach).toBe(false)
+      expect(createDetachedSessionArgs('mysession')).toEqual(['new-session', '-d', '-s', 'mysession'])
+      expect(resizeSessionArgs('mysession', 120, 40)).toEqual([
+        'resize-window',
+        '-t',
+        'mysession:0',
+        '-x',
+        '120',
+        '-y',
+        '40',
+      ])
+      expect(detachSequence()).toBe('\x02d')
+    } finally {
+      if (previous === undefined) delete process.env.TERMINAL_BACKEND
+      else process.env.TERMINAL_BACKEND = previous
+      if (previousSocket === undefined) delete process.env.TMUX_SOCKET_NAME
+      else process.env.TMUX_SOCKET_NAME = previousSocket
+      if (previousConfig === undefined) delete process.env.TMUX_CONFIG
+      else process.env.TMUX_CONFIG = previousConfig
+    }
+  })
+
+  it('can isolate tmux sessions when TMUX_SOCKET_NAME is set', () => {
+    const previous = process.env.TERMINAL_BACKEND
+    const previousSocket = process.env.TMUX_SOCKET_NAME
+    process.env.TERMINAL_BACKEND = 'tmux'
+    process.env.TMUX_SOCKET_NAME = 'web-screen-test'
+    try {
+      const spec = attachSpec('mysession', 120, 40)
+
+      expect(spec.args).toEqual(expect.arrayContaining([
+        '-L',
+        'web-screen-test',
+        '-f',
+        'attach-session',
+        '-t',
+        'mysession',
+      ]))
+    } finally {
+      if (previous === undefined) delete process.env.TERMINAL_BACKEND
+      else process.env.TERMINAL_BACKEND = previous
+      if (previousSocket === undefined) delete process.env.TMUX_SOCKET_NAME
+      else process.env.TMUX_SOCKET_NAME = previousSocket
+    }
+  })
+
+  it('keeps the existing screen attach workaround when explicitly selected', () => {
+    const previous = process.env.TERMINAL_BACKEND
+    process.env.TERMINAL_BACKEND = 'screen'
+    try {
+      const spec = attachSpec('mysession', 120, 40)
+
+      expect(spec.args).toContain('-xU')
+      expect(spec.args).toContain('mysession')
+      expect(spec.cols).toBe(119)
+      expect(spec.rows).toBe(40)
+      expect(spec.discardInitialOutput).toBe(true)
+      expect(spec.resizeAfterAttach).toBe(true)
+      expect(resizeSessionArgs('mysession', 120, 40)).toEqual(['-S', 'mysession', '-X', 'redisplay'])
+      expect(detachSequence()).toBe('\x01d')
+    } finally {
+      if (previous === undefined) delete process.env.TERMINAL_BACKEND
+      else process.env.TERMINAL_BACKEND = previous
+    }
   })
 })
 

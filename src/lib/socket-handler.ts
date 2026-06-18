@@ -3,9 +3,16 @@ import * as pty from 'node-pty'
 import { execFileSync } from 'child_process'
 import { checkIP, getClientIPForServer } from './auth'
 import { sessionExists, validateSessionName } from './screen-manager'
-import { screenArgs, screenCommand } from './screen-command'
+import {
+  attachSpec,
+  backendArgs,
+  backendCommand,
+  detachSequence,
+  prepareAttachArgs,
+  resizeSessionArgs,
+  terminalBackendKind,
+} from './terminal-backend'
 
-const SCREEN_DETACH_SEQUENCE = '\x01d'
 const DETACH_FALLBACK_KILL_MS = 2000
 
 export function setupSocketHandler(io: SocketIOServer): void {
@@ -31,7 +38,7 @@ export function setupSocketHandler(io: SocketIOServer): void {
 
       intentionallyDetached.add(proc)
       try {
-        proc.write(SCREEN_DETACH_SEQUENCE)
+        proc.write(detachSequence())
       } catch {
         try {
           proc.kill()
@@ -60,32 +67,32 @@ export function setupSocketHandler(io: SocketIOServer): void {
         detachPty()
       }
 
-      // Enable UTF-8 on the target session before attaching —
-      // sessions created without -U track columns in byte mode,
-      // causing character position drift in xterm.js
-      try {
-        execFileSync(screenCommand(), screenArgs(['-S', session, '-X', 'utf8', 'on']), { timeout: 2000 })
-      } catch {}
+      const prepareArgs = prepareAttachArgs(session)
+      if (prepareArgs) {
+        // Screen sessions created without -U track columns in byte mode,
+        // causing character position drift in xterm.js.
+        try {
+          execFileSync(backendCommand(), backendArgs(prepareArgs), { timeout: 2000 })
+        } catch {}
+      }
 
       const ptyCol = cols || 80
       const ptyRow = rows || 30
       const attachedSession = session
 
       currentSession = session
-      console.log(`[server] terminal:attach session=${session} cols=${ptyCol} rows=${ptyRow}`)
+      console.log(`[server] terminal:attach backend=${terminalBackendKind()} session=${session} cols=${ptyCol} rows=${ptyRow}`)
 
-      // Spawn PTY 1 col smaller — screen dumps old buffer at this size.
-      // After discarding that stale output, resize to the real size so
-      // screen sees an actual size change and sends a full redraw.
-      const proc = pty.spawn(screenCommand(), screenArgs(['-xU', session]), {
+      const spec = attachSpec(session, ptyCol, ptyRow)
+      const proc = pty.spawn(spec.command, spec.args, {
         name: 'xterm-256color',
-        cols: Math.max(ptyCol - 1, 1),
-        rows: ptyRow,
+        cols: spec.cols,
+        rows: spec.rows,
         cwd: process.env.HOME,
       })
       ptyProcess = proc
 
-      let discarding = true
+      let discarding = spec.discardInitialOutput
       let outputBuf = ''
       let flushScheduled = false
 
@@ -107,13 +114,15 @@ export function setupSocketHandler(io: SocketIOServer): void {
         }
       })
 
-      setTimeout(() => {
-        discarding = false
-        // Resize to real size — actual change triggers SIGWINCH → full redraw
-        if (ptyProcess === proc) {
-          proc.resize(ptyCol, ptyRow)
-        }
-      }, 50)
+      if (spec.discardInitialOutput) {
+        setTimeout(() => {
+          discarding = false
+          // Screen: resize to real size after dropping stale buffer output.
+          if (ptyProcess === proc && spec.resizeAfterAttach) {
+            proc.resize(ptyCol, ptyRow)
+          }
+        }, 50)
+      }
 
       proc.onExit(async () => {
         const wasIntentionalDetach = intentionallyDetached.has(proc)
@@ -145,14 +154,12 @@ export function setupSocketHandler(io: SocketIOServer): void {
       const r = Math.floor(rows)
       if (c >= 1 && c <= 500 && r >= 1 && r <= 500 && ptyProcess) {
         ptyProcess.resize(c, r)
-        // Force screen to redisplay after resize — ensures screen
-        // redraws even if pty was already at this size, and avoids
-        // the double-SIGWINCH issue from the cols-1 trick.
+        // Ask the backend to reconcile its virtual size after PTY resize.
         if (currentSession) {
           try {
             execFileSync(
-              screenCommand(),
-              screenArgs(['-S', currentSession, '-X', 'redisplay']),
+              backendCommand(),
+              backendArgs(resizeSessionArgs(currentSession, c, r)),
               { timeout: 2000 },
             )
           } catch {}

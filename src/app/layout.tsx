@@ -21,7 +21,7 @@ export const viewport = {
 
 export const metadata: Metadata = {
   title: "web-screen",
-  description: "Web terminal for screen sessions",
+  description: "Web terminal for persistent sessions",
 };
 
 export default function RootLayout({

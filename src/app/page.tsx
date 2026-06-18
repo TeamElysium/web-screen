@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
-interface ScreenSession {
+interface TerminalSession {
   id: string
   name: string
   status: 'attached' | 'detached'
@@ -12,7 +12,7 @@ interface ScreenSession {
 const SAFE_NAME = /^[a-zA-Z0-9_-]+$/
 
 export default function Home() {
-  const [sessions, setSessions] = useState<ScreenSession[]>([])
+  const [sessions, setSessions] = useState<TerminalSession[]>([])
   const [showModal, setShowModal] = useState(false)
   const [newName, setNewName] = useState('')
   const [error, setError] = useState('')
@@ -117,7 +117,7 @@ export default function Home() {
       {!showModal && error && <p className="mb-4 text-red-500">{error}</p>}
 
       {sessions.length === 0 ? (
-        <p className="text-gray-500">No screen sessions found.</p>
+        <p className="text-gray-500">No sessions found.</p>
       ) : (
         <ul className="space-y-2">
           {sessions.map((s) => (

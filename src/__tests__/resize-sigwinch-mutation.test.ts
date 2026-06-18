@@ -28,6 +28,7 @@ vi.mock('node-pty', () => ({
 
 vi.mock('../lib/auth', () => ({
   checkIP: () => true,
+  getClientIPForServer: () => '127.0.0.1',
 }))
 
 vi.mock('../lib/screen-manager', () => ({
@@ -158,7 +159,7 @@ describe('resize + screen redisplay (강제 리드로우)', () => {
       (call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes('redisplay')
     )
     expect(redisplayCall).toBeTruthy()
-    expect(redisplayCall![1]).toEqual(['-S', 'my-custom-session', '-X', 'redisplay'])
+    expect(redisplayCall![1]).toEqual(expect.arrayContaining(['-S', 'my-custom-session', '-X', 'redisplay']))
 
     client.close()
   })

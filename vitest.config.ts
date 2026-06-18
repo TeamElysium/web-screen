@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: [],
+    setupFiles: ['src/__tests__/setup-env.ts'],
     exclude: ['e2e/**', 'node_modules/**'],
     environmentMatchGlobs: [
       ['src/__tests__/socket-handler.test.ts', 'node'],

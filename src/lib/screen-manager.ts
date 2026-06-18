@@ -1,6 +1,16 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { screenArgs, screenCommand } from './screen-command'
+import {
+  backendArgs,
+  backendCommand,
+  cleanupSessionsArgs,
+  createDetachedSessionArgs,
+  killSessionArgs,
+  listSessionsArgs,
+  parseTmuxList,
+  terminalBackendKind,
+  type TerminalSession,
+} from './terminal-backend'
 
 const execFileAsync = promisify(execFile)
 
@@ -41,7 +51,7 @@ export function parseScreenList(output: string): ScreenSession[] {
 
 async function screenOutput(args: string[]): Promise<string> {
   try {
-    const { stdout, stderr } = await execFileAsync(screenCommand(), screenArgs(args))
+    const { stdout, stderr } = await execFileAsync(backendCommand(), backendArgs(args))
     return `${stdout}${stderr}`
   } catch (err: unknown) {
     if (err && typeof err === 'object') {
@@ -53,8 +63,12 @@ async function screenOutput(args: string[]): Promise<string> {
 }
 
 export async function listSessions(): Promise<ScreenSession[]> {
-  await screenOutput(['-wipe'])
-  return parseScreenList(await screenOutput(['-ls']))
+  const cleanupArgs = cleanupSessionsArgs()
+  if (cleanupArgs) await screenOutput(cleanupArgs)
+  const output = await screenOutput(listSessionsArgs())
+  return terminalBackendKind() === 'tmux'
+    ? parseTmuxList(output)
+    : parseScreenList(output)
 }
 
 export async function createSession(name: string): Promise<void> {
@@ -62,7 +76,7 @@ export async function createSession(name: string): Promise<void> {
   if (await sessionExists(name)) {
     throw new Error(`Session "${name}" already exists`)
   }
-  await execFileAsync(screenCommand(), screenArgs(['-dmUS', name]))
+  await execFileAsync(backendCommand(), backendArgs(createDetachedSessionArgs(name)))
 }
 
 export async function sessionExists(name: string): Promise<boolean> {
@@ -77,5 +91,10 @@ export async function killSession(name: string): Promise<void> {
   if (!session) {
     throw new Error(`Session "${name}" not found`)
   }
-  await execFileAsync(screenCommand(), screenArgs(['-S', `${session.id}.${session.name}`, '-X', 'quit']))
+  await execFileAsync(
+    backendCommand(),
+    backendArgs(killSessionArgs(session as TerminalSession)),
+  )
 }
+
+export { parseTmuxList }
