@@ -54,6 +54,15 @@ describe('Virtual keyboard', () => {
     expect(screen.getByTestId('vk-→')).toBeDefined()
   })
 
+  it('lays out scroll buttons side-by-side with larger hit targets', async () => {
+    render(<TerminalPage />)
+    await vi.dynamicImportSettled()
+
+    expect(screen.getByTestId('vk-scroll-controls').className).toContain('flex-row')
+    expect(screen.getByTestId('vk-scroll-up').className).toContain('w-11')
+    expect(screen.getByTestId('vk-scroll-down').className).toContain('w-11')
+  })
+
   it('sends Esc key code on press', async () => {
     render(<TerminalPage />)
     await vi.dynamicImportSettled()

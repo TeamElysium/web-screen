@@ -290,18 +290,21 @@ export default function TerminalPage() {
             </button>
           ))}
         </div>
-        <div className="flex flex-col border-l border-gray-800">
+        <div
+          className="flex shrink-0 flex-row border-l border-gray-800"
+          data-testid="vk-scroll-controls"
+        >
           <button
             data-testid="vk-scroll-up"
             onPointerDown={(e) => { e.preventDefault(); dismissKeyboardIfHidden(); startRepeat(() => handleRef.current?.scrollUp()) }}
-            className="flex flex-1 items-center justify-center px-2 text-xs text-gray-400 active:bg-gray-700"
+            className="flex w-11 items-center justify-center px-2 py-2 text-base leading-none text-gray-300 active:bg-gray-700"
           >
             ▲
           </button>
           <button
             data-testid="vk-scroll-down"
             onPointerDown={(e) => { e.preventDefault(); dismissKeyboardIfHidden(); startRepeat(() => handleRef.current?.scrollDown()) }}
-            className="flex flex-1 items-center justify-center border-t border-gray-800 px-2 text-xs text-gray-400 active:bg-gray-700"
+            className="flex w-11 items-center justify-center border-l border-gray-800 px-2 py-2 text-base leading-none text-gray-300 active:bg-gray-700"
           >
             ▼
           </button>
