@@ -13,6 +13,7 @@ import { execFileSync } from 'child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { screenArgs, screenCommand } from '@/lib/screen-command'
 
 const TEST_PREFIX = 'wst_sock_'
 let testCounter = 0
@@ -65,7 +66,7 @@ function wait(ms: number): Promise<void> {
 
 function screenListLine(name: string): string {
   try {
-    const output = execFileSync('screen', ['-ls'], { encoding: 'utf8', timeout: 3000 })
+    const output = execFileSync(screenCommand(), screenArgs(['-ls']), { encoding: 'utf8', timeout: 3000 })
     return output.split('\n').find(line => line.includes(name)) ?? ''
   } catch (err) {
     const output = err && typeof err === 'object'
@@ -183,7 +184,7 @@ describe('socket-handler', () => {
     trackSession(name)
 
     try {
-      execFileSync('screen', [
+      execFileSync(screenCommand(), [
         '-c',
         screenRc,
         '-dmUS',
@@ -208,7 +209,7 @@ describe('socket-handler', () => {
       expect(await sessionExists(name)).toBe(true)
     } finally {
       try {
-        execFileSync('screen', ['-S', name, '-X', 'quit'], { timeout: 3000 })
+        execFileSync(screenCommand(), screenArgs(['-S', name, '-X', 'quit']), { timeout: 3000 })
       } catch {}
       rmSync(dir, { recursive: true, force: true })
     }

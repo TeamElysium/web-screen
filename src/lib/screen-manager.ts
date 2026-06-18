@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { screenArgs, screenCommand } from './screen-command'
 
 const execFileAsync = promisify(execFile)
 
@@ -40,7 +41,7 @@ export function parseScreenList(output: string): ScreenSession[] {
 
 async function screenOutput(args: string[]): Promise<string> {
   try {
-    const { stdout, stderr } = await execFileAsync('screen', args)
+    const { stdout, stderr } = await execFileAsync(screenCommand(), screenArgs(args))
     return `${stdout}${stderr}`
   } catch (err: unknown) {
     if (err && typeof err === 'object') {
@@ -61,7 +62,7 @@ export async function createSession(name: string): Promise<void> {
   if (await sessionExists(name)) {
     throw new Error(`Session "${name}" already exists`)
   }
-  await execFileAsync('screen', ['-dmUS', name])
+  await execFileAsync(screenCommand(), screenArgs(['-dmUS', name]))
 }
 
 export async function sessionExists(name: string): Promise<boolean> {
@@ -76,5 +77,5 @@ export async function killSession(name: string): Promise<void> {
   if (!session) {
     throw new Error(`Session "${name}" not found`)
   }
-  await execFileAsync('screen', ['-S', `${session.id}.${session.name}`, '-X', 'quit'])
+  await execFileAsync(screenCommand(), screenArgs(['-S', `${session.id}.${session.name}`, '-X', 'quit']))
 }

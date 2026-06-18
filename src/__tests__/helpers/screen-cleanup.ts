@@ -1,4 +1,5 @@
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
+import { screenArgs, screenCommand } from '@/lib/screen-command'
 
 const trackedSessions: string[] = []
 
@@ -8,11 +9,11 @@ export function trackSession(name: string): void {
 
 export function forceKillSession(name: string): void {
   try {
-    const output = execSync('screen -ls 2>&1').toString()
+    const output = execFileSync(screenCommand(), screenArgs(['-ls']), { encoding: 'utf8' })
     for (const line of output.split('\n')) {
       if (line.includes(name)) {
         const match = line.match(/\t(\d+)\./)
-        if (match) try { execSync(`kill -9 ${match[1]} 2>&1`) } catch { /* */ }
+        if (match) try { process.kill(Number(match[1]), 'SIGKILL') } catch { /* */ }
       }
     }
   } catch { /* */ }
@@ -23,5 +24,5 @@ export function cleanupTrackedSessions(): void {
     forceKillSession(name)
   }
   trackedSessions.length = 0
-  try { execSync('screen -wipe 2>&1') } catch { /* */ }
+  try { execFileSync(screenCommand(), screenArgs(['-wipe'])) } catch { /* */ }
 }
