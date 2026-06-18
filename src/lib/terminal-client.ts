@@ -182,8 +182,12 @@ export function createTerminalConnection(
       fitAddon.fit()
       socket?.emit('terminal:resize', { cols: term.cols, rows: term.rows })
     },
-    scrollUp: () => { term.scrollLines(-5) },
-    scrollDown: () => { term.scrollLines(5) },
+    scrollUp: () => {
+      socket?.emit('terminal:scroll', { direction: 'up' })
+    },
+    scrollDown: () => {
+      socket?.emit('terminal:scroll', { direction: 'down' })
+    },
     getBufferText: () => {
       const buf = term.buffer.active
       const lines: string[] = []

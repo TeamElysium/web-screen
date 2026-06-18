@@ -6,9 +6,12 @@ import { parseScreenList, parseTmuxList, listSessions, createSession, sessionExi
 import { trackSession, cleanupTrackedSessions } from './helpers/screen-cleanup'
 import {
   attachSpec,
+  cancelScrollArgs,
   createDetachedSessionArgs,
   detachSequence,
   resizeSessionArgs,
+  scrollPositionArgs,
+  scrollSessionArgs,
   terminalBackendKind,
 } from '@/lib/terminal-backend'
 
@@ -134,6 +137,33 @@ describe('terminal backend selection', () => {
         '-y',
         '40',
       ])
+      expect(scrollSessionArgs('mysession', 'up')).toEqual([
+        'copy-mode',
+        '-u',
+        '-t',
+        'mysession:0.0',
+      ])
+      expect(scrollSessionArgs('mysession', 'down')).toEqual([
+        'send-keys',
+        '-t',
+        'mysession:0.0',
+        '-X',
+        'page-down',
+      ])
+      expect(scrollPositionArgs('mysession')).toEqual([
+        'display-message',
+        '-p',
+        '-t',
+        'mysession:0.0',
+        '#{pane_in_mode} #{scroll_position}',
+      ])
+      expect(cancelScrollArgs('mysession')).toEqual([
+        'send-keys',
+        '-t',
+        'mysession:0.0',
+        '-X',
+        'cancel',
+      ])
       expect(detachSequence()).toBe('\x02d')
     } finally {
       if (previous === undefined) delete process.env.TERMINAL_BACKEND
@@ -182,6 +212,10 @@ describe('terminal backend selection', () => {
       expect(spec.discardInitialOutput).toBe(true)
       expect(spec.resizeAfterAttach).toBe(true)
       expect(resizeSessionArgs('mysession', 120, 40)).toEqual(['-S', 'mysession', '-X', 'redisplay'])
+      expect(scrollSessionArgs('mysession', 'up')).toBeNull()
+      expect(scrollSessionArgs('mysession', 'down')).toBeNull()
+      expect(scrollPositionArgs('mysession')).toBeNull()
+      expect(cancelScrollArgs('mysession')).toBeNull()
       expect(detachSequence()).toBe('\x01d')
     } finally {
       if (previous === undefined) delete process.env.TERMINAL_BACKEND

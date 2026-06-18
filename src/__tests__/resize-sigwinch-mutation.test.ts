@@ -51,6 +51,7 @@ let port: number
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  mockExecFileSync.mockReset()
   httpServer = createServer()
   ioServer = new SocketIOServer(httpServer)
   setupSocketHandler(ioServer)
@@ -63,6 +64,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await new Promise<void>((resolve) => {
     ioServer.close(() => httpServer.close(() => resolve()))
   })
@@ -160,6 +162,66 @@ describe('resize + screen redisplay (강제 리드로우)', () => {
     )
     expect(redisplayCall).toBeTruthy()
     expect(redisplayCall![1]).toEqual(expect.arrayContaining(['-S', 'my-custom-session', '-X', 'redisplay']))
+
+    client.close()
+  })
+})
+
+describe('tmux scroll buttons', () => {
+  it('scroll-up runs tmux copy-mode page-up for the attached session', async () => {
+    vi.stubEnv('TERMINAL_BACKEND', 'tmux')
+
+    const client = connectClient()
+    await new Promise<void>(r => client.on('connect', r))
+
+    client.emit('terminal:attach', { session: 'mysession', cols: 80, rows: 24 })
+    await new Promise(r => setTimeout(r, 100))
+    mockExecFileSync.mockClear()
+
+    client.emit('terminal:scroll', { direction: 'up' })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ['copy-mode', '-u', '-t', 'mysession:0.0'],
+      { timeout: 2000 },
+    )
+
+    client.close()
+  })
+
+  it('scroll-down pages down and exits copy-mode when it reaches the bottom', async () => {
+    vi.stubEnv('TERMINAL_BACKEND', 'tmux')
+    mockExecFileSync.mockImplementation((_cmd, args) => {
+      if (Array.isArray(args) && args.includes('display-message')) return '1 0\n'
+      return ''
+    })
+
+    const client = connectClient()
+    await new Promise<void>(r => client.on('connect', r))
+
+    client.emit('terminal:attach', { session: 'mysession', cols: 80, rows: 24 })
+    await new Promise(r => setTimeout(r, 100))
+    mockExecFileSync.mockClear()
+
+    client.emit('terminal:scroll', { direction: 'down' })
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ['send-keys', '-t', 'mysession:0.0', '-X', 'page-down'],
+      { timeout: 2000 },
+    )
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ['display-message', '-p', '-t', 'mysession:0.0', '#{pane_in_mode} #{scroll_position}'],
+      { encoding: 'utf8', timeout: 2000 },
+    )
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ['send-keys', '-t', 'mysession:0.0', '-X', 'cancel'],
+      { timeout: 2000 },
+    )
 
     client.close()
   })

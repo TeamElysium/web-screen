@@ -22,6 +22,7 @@ export interface AttachSpec {
 
 const TMUX_CONF_CONTENT = [
   'set -g status off',
+  'set -g mouse on',
   'set -g default-terminal "tmux-256color"',
   'set -as terminal-features ",xterm-256color:RGB"',
   'set -as terminal-features ",xterm-256color:sync"',
@@ -157,4 +158,27 @@ export function resizeSessionArgs(session: string, cols: number, rows: number): 
     return ['resize-window', '-t', `${session}:0`, '-x', String(cols), '-y', String(rows)]
   }
   return ['-S', session, '-X', 'redisplay']
+}
+
+export type ScrollDirection = 'up' | 'down'
+
+export function scrollSessionArgs(session: string, direction: ScrollDirection): string[] | null {
+  if (terminalBackendKind() !== 'tmux') return null
+
+  const target = `${session}:0.0`
+  if (direction === 'up') {
+    return ['copy-mode', '-u', '-t', target]
+  }
+
+  return ['send-keys', '-t', target, '-X', 'page-down']
+}
+
+export function scrollPositionArgs(session: string): string[] | null {
+  if (terminalBackendKind() !== 'tmux') return null
+  return ['display-message', '-p', '-t', `${session}:0.0`, '#{pane_in_mode} #{scroll_position}']
+}
+
+export function cancelScrollArgs(session: string): string[] | null {
+  if (terminalBackendKind() !== 'tmux') return null
+  return ['send-keys', '-t', `${session}:0.0`, '-X', 'cancel']
 }

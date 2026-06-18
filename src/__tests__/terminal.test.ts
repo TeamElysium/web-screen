@@ -250,4 +250,30 @@ describe('Terminal component logic', () => {
     expect(mockEmit).toHaveBeenCalledWith('terminal:input', '\x1b')
     handle.cleanup()
   })
+
+  it('scrollUp emits terminal:scroll up via socket', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+
+    const handle = createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
+    mockEmit.mockClear()
+
+    handle.scrollUp()
+
+    expect(mockEmit).toHaveBeenCalledWith('terminal:scroll', { direction: 'up' })
+    handle.cleanup()
+  })
+
+  it('scrollDown emits terminal:scroll down via socket', async () => {
+    const { createTerminalConnection } = await import('@/lib/terminal-client')
+
+    const handle = createTerminalConnection('test-session', document.createElement('div'))
+    flushRaf()
+    mockEmit.mockClear()
+
+    handle.scrollDown()
+
+    expect(mockEmit).toHaveBeenCalledWith('terminal:scroll', { direction: 'down' })
+    handle.cleanup()
+  })
 })

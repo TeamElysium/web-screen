@@ -7,9 +7,12 @@ import {
   attachSpec,
   backendArgs,
   backendCommand,
+  cancelScrollArgs,
   detachSequence,
   prepareAttachArgs,
   resizeSessionArgs,
+  scrollPositionArgs,
+  scrollSessionArgs,
   terminalBackendKind,
 } from './terminal-backend'
 
@@ -147,6 +150,38 @@ export function setupSocketHandler(io: SocketIOServer): void {
       if (typeof data === 'string' && data.length <= 4096) {
         ptyProcess?.write(data)
       }
+    })
+
+    socket.on('terminal:scroll', (data: unknown) => {
+      if (!currentSession) return
+
+      const direction = typeof data === 'object' && data !== null && 'direction' in data
+        ? (data as { direction?: unknown }).direction
+        : null
+      if (direction !== 'up' && direction !== 'down') return
+
+      const args = scrollSessionArgs(currentSession, direction)
+      if (!args) return
+
+      try {
+        execFileSync(backendCommand(), backendArgs(args), { timeout: 2000 })
+
+        if (direction === 'down') {
+          const positionArgs = scrollPositionArgs(currentSession)
+          const cancelArgs = cancelScrollArgs(currentSession)
+          if (!positionArgs || !cancelArgs) return
+
+          const output = execFileSync(
+            backendCommand(),
+            backendArgs(positionArgs),
+            { encoding: 'utf8', timeout: 2000 },
+          )
+          const [paneInMode, scrollPosition] = output.trim().split(/\s+/)
+          if (paneInMode === '1' && scrollPosition === '0') {
+            execFileSync(backendCommand(), backendArgs(cancelArgs), { timeout: 2000 })
+          }
+        }
+      } catch {}
     })
 
     socket.on('terminal:resize', ({ cols, rows }: { cols: number; rows: number }) => {
